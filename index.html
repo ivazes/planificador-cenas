@@ -258,7 +258,11 @@ const Constantes = (() => {
    * Formato de la tabla: "1 ración de HC (10 g) son X g de alimento". La app NO lee esta web:
    * solo muestra el enlace; la cifra la consulta y la escribe la persona.
    */
-  const TABLA_RACIONES = { url: 'https://www.fundacionparalasalud.org/sabercomer/tabla_de_raciones_de_hidratos_de_carbono#filtro', gramosHcPorRacion: 10 };
+  const TABLA_RACIONES = {
+    url: 'https://www.fundacionparalasalud.org/sabercomer/tabla_de_raciones_de_hidratos_de_carbono#filtro',
+    urlPdf: 'https://www.fundacionparalasalud.org/upload/hidratos_carbono_textos/1/Tablas_Hidratos_3Edicion_FSNN.pdf', // 3.ª edición, se puede descargar para consultarla sin conexión
+    gramosHcPorRacion: 10
+  };
   const ESTADOS_ALERGENO = { desconocido: 'Sin indicar', no_contiene: 'No contiene', contiene: 'Contiene', trazas: 'Puede contener trazas' };
 
   /** Exclusiones absolutas. No editables. */
@@ -1634,7 +1638,8 @@ const CopiaSeguridad = (() => {
           <label>Por cada (g)<input name="hcBase" inputmode="decimal" value="${esc(ing.hc.base)}"></label>
           <label>Peso del dato<select name="hcEstadoPeso">${opciones(C.ESTADOS_PESO, ing.hc.estadoPeso)}</select></label></div>
         <div class="aviso info" style="margin:4px 0 10px">¿Sin dato en la etiqueta? Consulta la
-          <a href="${esc(C.TABLA_RACIONES.url)}" target="_blank" rel="noopener noreferrer">tabla de raciones de HC</a> y escribe la cifra de la fila:
+          <a href="${esc(C.TABLA_RACIONES.url)}" target="_blank" rel="noopener noreferrer">tabla de raciones de HC</a>
+          (o su <a href="${esc(C.TABLA_RACIONES.urlPdf)}" target="_blank" rel="noopener noreferrer">versión PDF, 3.ª edición</a>) y escribe la cifra de la fila:
           <div class="fila" style="margin-top:6px"><span>1 ración (${C.TABLA_RACIONES.gramosHcPorRacion} g HC) son</span>
             <input name="racionGramos" inputmode="decimal" style="width:90px;margin:0"> <span>g</span>
             <button class="pequeno" data-accion="aplicar-racion">Aplicar</button></div>

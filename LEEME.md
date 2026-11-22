@@ -46,7 +46,7 @@ Los datos **no se sincronizan** entre dispositivos. Si borras los datos de Chrom
 - **Nombre**, **categoría** y, si quieres que funcionen las reglas de "variar el tipo", un **tipo** (arroz, pasta, patata, pollo…).
 - **Hidratos:** gramos de HC *por cada* X gramos (normalmente 100), y si ese dato es para el alimento **crudo**, **cocido** o **no aplica**.
 - **Fuente** del dato y la casilla **"He comprobado este dato"**. Sin fuente o sin comprobar, el cálculo queda *pendiente de confirmar*.
-- **Si la etiqueta no indica los hidratos**, usa la [tabla de raciones de HC de la Fundación para la Salud](https://www.fundacionparalasalud.org/sabercomer/tabla_de_raciones_de_hidratos_de_carbono#filtro). Para cada alimento, la tabla dice cuántos gramos son "1 ración" (= 10 g de HC).
+- **Si la etiqueta no indica los hidratos**, usa la [tabla de raciones de HC de la Fundación para la Salud](https://www.fundacionparalasalud.org/sabercomer/tabla_de_raciones_de_hidratos_de_carbono#filtro) o su [versión PDF (3.ª edición)](https://www.fundacionparalasalud.org/upload/hidratos_carbono_textos/1/Tablas_Hidratos_3Edicion_FSNN.pdf), que puedes descargar en el móvil para consultarla sin conexión. Para cada alimento, la tabla dice cuántos gramos son "1 ración" (= 10 g de HC).
   1. En la ficha, escribe esa cifra en **"1 ración (10 g HC) son __ g"** y pulsa **Aplicar**. La app rellena "10 g de HC por cada X g" y elige esa tabla como fuente.
   2. Elige tú **Crudo** o **Cocido** según la fila. En la tabla, "hervido" equivale a cocido.
   3. Anota en **Detalle** el nombre exacto de la fila (por ejemplo, "Arroz blanco, crudo").
@@ -134,7 +134,7 @@ python3 -m http.server 8000
 
 Después abre `http://localhost:8000/pruebas/pruebas.html` en el navegador.
 
-**Resultado (22/11/2026, Firefox de escritorio): 148 de 148 superadas.**
+**Resultado (22/11/2026, Firefox de escritorio): 149 de 149 superadas.**
 
 | Requisito | Qué se comprobó |
 |---|---|

@@ -450,7 +450,8 @@ async function pruebasNucleo() {
     comprobar('El código no contiene cálculos de insulina, dosis ni glucosa', !/insulin|dosis|glucosa|glucemia/i.test(html));
     comprobar('No hay librerías externas ni la app descarga datos de internet', !/<script[^>]+src=|<link[^>]+href="http|fetch\(|XMLHttpRequest/i.test(html));
     const urls = [...new Set(html.match(/https?:\/\/[^\s'"<>]+/g) || [])];
-    comprobar('La única dirección externa es el enlace a la tabla de raciones', urls.length === 1 && urls[0] === M.Constantes.TABLA_RACIONES.url, urls.join(' '));
+    const permitidas = [M.Constantes.TABLA_RACIONES.url, M.Constantes.TABLA_RACIONES.urlPdf];
+    comprobar('Las únicas direcciones externas son los enlaces a la tabla de raciones (web y PDF)', urls.length === 2 && urls.every(u => permitidas.includes(u)), urls.join(' '));
   }
 }
 
@@ -479,6 +480,7 @@ async function pruebasInterfaz() {
   pulsar('[data-accion="ing-nuevo"]');
   const campo = n => doc.querySelector(`#dialogo [name="${n}"]`);
   comprobar('La ficha enlaza la tabla de raciones', !!doc.querySelector('#dialogo a[href*="tabla_de_raciones"]'));
+  comprobar('La ficha enlaza el PDF de la tabla', !!doc.querySelector('#dialogo a[href$="Tablas_Hidratos_3Edicion_FSNN.pdf"]'));
   campo('racionGramos').value = '13';
   pulsar('[data-accion="aplicar-racion"]');
   comprobar('«Aplicar» ración: 10 g HC por 13 g y fuente = tabla de raciones',
