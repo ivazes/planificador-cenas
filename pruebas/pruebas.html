@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pruebas — Planificador de cenas</title>
+<style>
+  body{font-family:system-ui,sans-serif;margin:16px;font-size:14px}
+  .ok{color:#1d7343} .fallo{color:#a61e2a;font-weight:bold}
+  h2{font-size:1rem;margin:16px 0 4px}
+  iframe{width:390px;height:600px;border:1px solid #ccc}
+</style>
+</head>
+<body>
+<h1>Pruebas automáticas (datos ficticios)</h1>
+<p>Esta página necesita abrirse desde un servidor local (ver instrucciones). Usa solo datos inventados.</p>
+<div id="resumen"></div>
+<div id="salida"></div>
+<iframe id="marco" title="App bajo prueba"></iframe>
+<script>
+'use strict';
+const resultados = [];
+let grupoActual = '';
+function grupo(nombre) { grupoActual = nombre; }
+function comprobar(nombre, condicion, detalle) {
+  resultados.push({ grupo: grupoActual, nombre, ok: !!condicion, detalle: condicion ? '' : (detalle || '') });
+}
+function pintarResultados() {
+  const fallos = resultados.filter(r => !r.ok).length;
+  document.getElementById('resumen').innerHTML = `<b class="${fallos ? 'fallo' : 'ok'}">${resultados.length - fallos} de ${resultados.length} pruebas superadas${fallos ? ' · ' + fallos + ' FALLOS' : ''}</b>`;
+  let html = '', g = null;
+  resultados.forEach(r => {
+    if (r.grupo !== g) { g = r.grupo; html += `<h2>${g}</h2>`; }
+    html += `<div class="${r.ok ? 'ok' : 'fallo'}">${r.ok ? '✓' : '✕'} ${r.nombre}${r.detalle ? ' — ' + r.detalle : ''}</div>`;
+  });
+  document.getElementById('salida').innerHTML = html;
+  // Si el servidor de pruebas lo admite, envía el informe en texto (se ignora si falla).
+  const texto = resultados.map(r => `${r.ok ? 'OK   ' : 'FALLO'} [${r.grupo}] ${r.nombre}${r.detalle ? ' — ' + r.detalle : ''}`).join('\n');
+  fetch('/resultado', { method: 'POST', body: `${resultados.length - fallos}/${resultados.length} superadas\n` + texto }).catch(() => {});
+}
+
+async function cargarNucleo() {
+  const html = await (await fetch('../index.html', { cache: 'no-store' })).text();
+  const codigo = html.match(/<script id="nucleo">([\s\S]*?)<\/script>/)[1];
+  return { html, M: new Function(codigo + '\nreturn { Util, Constantes, Datos, Ingredientes, Recetas, MenuEscolar, Alergenos, Hidratos, Reglas, Planificador, Revision, Almacen, CopiaSeguridad };')() };
+}
+
+/* ---------- Ayudantes para crear datos ficticios ---------- */
+function crearEntorno(M) {
+  const d = M.Datos.crearDatosIniciales(false);
+  const todoNo = () => { const a = {}; M.Constantes.EXCLUSIONES.forEach(e => { a[e.id] = 'no_contiene'; }); return a; };
+  function ing(id, nombre, categoriaId, tipo, gramos, estadoPeso, extra) {
+    const i = Object.assign(M.Datos.nuevoIngrediente(), { id, nombre, categoriaId, tipo,
+      hc: { gramos, base: 100, estadoPeso }, fuente: { clase: 'tabla_personal', detalle: 'Tabla ficticia de prueba' },
+      verificado: true, alergenos: todoNo() }, extra || {});
+    const r = M.Ingredientes.guardar(d, i); if (!r.ok) throw new Error(r.error);
+    return i;
+  }
+  function rec(id, nombre, lineas) {
+    const r = Object.assign(M.Datos.nuevaReceta(), { id, nombre,
+      lineas: lineas.map(([ingredienteId, gramos, estadoPeso]) => ({ ingredienteId, gramos, estadoPeso })) });
+    const res = M.Recetas.guardar(d, r); if (!res.ok) throw new Error(res.error);
+    return r;
+  }
+  function regla(id, nombre, prioridad, condicion, accion) {
+    const r = Object.assign(M.Datos.nuevaRegla(), { id, nombre, prioridad, activa: true, condicion, accion });
+    const res = M.Reglas.guardar(d, r); if (!res.ok) throw new Error(res.error);
+    return r;
+  }
+  function comida(dia, comps) {
+    d.menuColegio[dia] = { texto: comps.map(c => c[0]).join(', '),
+      componentes: comps.map(([texto, categoriaId, tipo, confirmado]) => Object.assign(M.Datos.nuevoComponente(texto, categoriaId, tipo, 'manual'), { confirmado: confirmado !== false })) };
+  }
+  return { d, ing, rec, regla, comida, todoNo };
+}
+
+async function pruebasNucleo() {
+  const { html, M } = await cargarNucleo();
+  const terminos = d => M.Alergenos.terminosActivos(d);
+
+  /* 1. Ingredientes */
+  grupo('Ingredientes: crear, editar, eliminar');
+  {
+    const E = crearEntorno(M);
+    E.ing('i1', 'Arroz ficticio', 'hidrato', 'arroz', 80, 'crudo');
+    comprobar('Crear ingrediente', E.d.ingredientes.length === 1);
+    const editado = Object.assign(M.Util.clonar(E.d.ingredientes[0]), { nombre: 'Arroz ficticio editado' });
+    M.Ingredientes.guardar(E.d, editado);
+    comprobar('Editar ingrediente (no duplica)', E.d.ingredientes.length === 1 && E.d.ingredientes[0].nombre === 'Arroz ficticio editado');
+    comprobar('Nombre obligatorio', !M.Ingredientes.guardar(E.d, Object.assign(M.Datos.nuevoIngrediente(), { nombre: '  ' })).ok);
+    const malo = M.Datos.nuevoIngrediente(); malo.nombre = 'X'; malo.hc.gramos = NaN;
+    comprobar('Rechaza dato de HC no numérico (no lo convierte en "sin dato")', !M.Ingredientes.guardar(E.d, malo).ok);
+    const neg = M.Datos.nuevoIngrediente(); neg.nombre = 'Y'; neg.hc.gramos = -3;
+    comprobar('Rechaza HC negativo', !M.Ingredientes.guardar(E.d, neg).ok);
+    E.rec('r1', 'Receta ficticia', [['i1', 30, 'crudo']]);
+    comprobar('No permite eliminar un ingrediente en uso', !M.Ingredientes.eliminar(E.d, 'i1').ok);
+    M.Recetas.eliminar(E.d, 'r1');
+    comprobar('Eliminar ingrediente sin uso', M.Ingredientes.eliminar(E.d, 'i1').ok && E.d.ingredientes.length === 0);
+  }
+
+  /* 2. Recetas */
+  grupo('Recetas: crear, editar, duplicar, eliminar');
+  {
+    const E = crearEntorno(M);
+    E.ing('i1', 'Patata ficticia', 'hidrato', 'patata', 15, 'crudo');
+    E.rec('r1', 'Puré ficticio', [['i1', 100, 'crudo']]);
+    comprobar('Crear receta', E.d.recetas.length === 1);
+    const ed = M.Util.clonar(E.d.recetas[0]); ed.nombre = 'Puré ficticio 2'; ed.lineas[0].gramos = 120;
+    M.Recetas.guardar(E.d, ed);
+    comprobar('Editar receta', E.d.recetas.length === 1 && E.d.recetas[0].lineas[0].gramos === 120);
+    const dup = M.Recetas.duplicar(E.d, 'r1');
+    comprobar('Duplicar receta (nuevo id y nombre "(copia)")', dup.ok && E.d.recetas.length === 2 && dup.id !== 'r1' && E.d.recetas[1].nombre.endsWith('(copia)'));
+    comprobar('Rechaza línea sin ingrediente', !M.Recetas.guardar(E.d, Object.assign(M.Datos.nuevaReceta(), { nombre: 'Z', lineas: [{ ingredienteId: '', gramos: 1, estadoPeso: 'crudo' }] })).ok);
+    E.d.eleccionManual.lunes = 'r1';
+    M.Recetas.eliminar(E.d, 'r1');
+    comprobar('Eliminar receta y quitarla de la elección manual', E.d.recetas.length === 1 && E.d.eleccionManual.lunes === null);
+  }
+
+  /* 3. Reutilización */
+  grupo('Reutilización de ingredientes');
+  {
+    const E = crearEntorno(M);
+    E.ing('i1', 'Pasta ficticia', 'hidrato', 'pasta', 70, 'crudo');
+    E.rec('r1', 'Plato A', [['i1', 40, 'crudo']]);
+    E.rec('r2', 'Plato B', [['i1', 20, 'crudo']]);
+    comprobar('El ingrediente aparece en dos recetas', M.Ingredientes.recetasQueLoUsan(E.d, 'i1').length === 2);
+    const cambiado = M.Util.clonar(E.d.ingredientes[0]); cambiado.hc.gramos = 50; M.Ingredientes.guardar(E.d, cambiado);
+    const a = M.Hidratos.calcularReceta(E.d.recetas[0], E.d).total, b = M.Hidratos.calcularReceta(E.d.recetas[1], E.d).total;
+    comprobar('Al cambiar la ficha se recalculan ambas recetas', a === 20 && b === 10, `A=${a}, B=${b}`);
+  }
+
+  /* 4-6. Hidratos */
+  grupo('Cálculo de hidratos');
+  {
+    const E = crearEntorno(M);
+    E.ing('i1', 'Arroz ficticio', 'hidrato', 'arroz', 80, 'crudo');
+    E.ing('i2', 'Verdura ficticia', 'verdura', '', 10, 'crudo');
+    E.ing('i3', 'Pan ficticio', 'hidrato', 'pan', 50, 'no_aplica');
+    const c = M.Hidratos.calcularReceta(E.rec('r1', 'R', [['i1', 35, 'crudo'], ['i2', 50, 'crudo']]), E.d);
+    comprobar('35 g × 80/100 + 50 g × 10/100 = 33 g', c.total === 33, 'total=' + c.total);
+    comprobar('Con todo documentado → "completo"', c.estado === 'completo', c.estado);
+    const base = M.Util.clonar(E.d.ingredientes[2]); base.hc = { gramos: 25, base: 50, estadoPeso: 'no_aplica' }; M.Ingredientes.guardar(E.d, base);
+    const c2 = M.Hidratos.calcularReceta(E.rec('r2', 'R2', [['i3', 30, 'no_aplica']]), E.d);
+    comprobar('Base de referencia distinta de 100 (25 g por 50 g; 30 g → 15 g)', c2.total === 15, 'total=' + c2.total);
+    const c3 = M.Hidratos.calcularReceta({ lineas: [] }, E.d);
+    comprobar('Receta vacía → incompleto', c3.estado === 'incompleto');
+    comprobar('No modifica cantidades (la receta conserva sus gramos)', E.d.recetas[0].lineas[0].gramos === 35);
+  }
+  grupo('Diferencia entre peso crudo y cocido');
+  {
+    const E = crearEntorno(M);
+    E.ing('i1', 'Arroz ficticio', 'hidrato', 'arroz', 80, 'crudo');
+    const c = M.Hidratos.calcularReceta(E.rec('r1', 'R', [['i1', 100, 'cocido']]), E.d);
+    comprobar('Peso cocido con dato crudo: la línea no se calcula', c.lineas[0].hc === null);
+    comprobar('… y el cálculo queda "pendiente de confirmar"', c.estado === 'pendiente', c.estado);
+    comprobar('… sin convertir ni estimar (total 0)', c.total === 0);
+    E.ing('i2', 'Arroz cocido ficticio', 'hidrato', 'arroz', 28, 'cocido');
+    const c2 = M.Hidratos.calcularReceta(E.rec('r2', 'R2', [['i2', 100, 'cocido']]), E.d);
+    comprobar('Con una ficha de arroz cocido sí se calcula (28 g)', c2.total === 28 && c2.estado === 'completo');
+  }
+  grupo('Detección de información incompleta');
+  {
+    const E = crearEntorno(M);
+    E.ing('sin_dato', 'Sin dato', 'hidrato', '', null, 'crudo');
+    E.ing('sin_verificar', 'Sin verificar', 'hidrato', '', 10, 'crudo', { verificado: false });
+    E.ing('sin_fuente', 'Sin fuente', 'hidrato', '', 10, 'crudo', { fuente: { clase: '', detalle: '' } });
+    E.ing('otra_vacia', 'Otra sin detalle', 'hidrato', '', 10, 'crudo', { fuente: { clase: 'otra', detalle: '' } });
+    E.ing('bien', 'Bien', 'hidrato', '', 10, 'crudo');
+    const est = (id, g) => M.Hidratos.calcularReceta({ lineas: [{ ingredienteId: id, gramos: g, estadoPeso: 'crudo' }] }, E.d).estado;
+    comprobar('Sin dato de HC → incompleto', est('sin_dato', 50) === 'incompleto');
+    comprobar('Cantidad desconocida → incompleto', est('bien', null) === 'incompleto');
+    comprobar('Dato sin verificar → pendiente de confirmar', est('sin_verificar', 50) === 'pendiente');
+    comprobar('Fuente sin identificar → pendiente de confirmar', est('sin_fuente', 50) === 'pendiente');
+    comprobar('"Otra fuente" sin detalle → pendiente de confirmar', est('otra_vacia', 50) === 'pendiente');
+    comprobar('Mezcla completo + incompleto → incompleto', M.Hidratos.calcularReceta({ lineas: [
+      { ingredienteId: 'bien', gramos: 10, estadoPeso: 'crudo' }, { ingredienteId: 'sin_dato', gramos: 10, estadoPeso: 'crudo' }] }, E.d).estado === 'incompleto');
+  }
+
+  /* 7. Alérgenos */
+  grupo('Identificación de posibles alérgenos');
+  {
+    const E = crearEntorno(M);
+    const T = terminos(E.d);
+    const analizar = extra => M.Alergenos.comprobarIngrediente(Object.assign(M.Datos.nuevoIngrediente(), { alergenos: E.todoNo() }, extra), T);
+    const estado = extra => analizar(extra).estado;
+    comprobar('Ingrediente simple sin coincidencias', estado({ nombre: 'Calabacín' }) === 'sin_coincidencias');
+    comprobar('"Pasta al huevo" → bloqueada', estado({ nombre: 'Pasta al huevo' }) === 'bloqueada');
+    comprobar('Plural y mayúsculas: "HUEVOS camperos" → bloqueada', estado({ nombre: 'HUEVOS camperos' }) === 'bloqueada');
+    comprobar('Tilde: "Piña en almíbar" → bloqueada', estado({ nombre: 'Piña en almíbar' }) === 'bloqueada');
+    comprobar('"Espinacas" NO se confunde con piña', estado({ nombre: 'Espinacas' }) === 'sin_coincidencias');
+    comprobar('"Piñones" → bloqueada (frutos secos)', estado({ nombre: 'Piñones' }) === 'bloqueada');
+    comprobar('"Salsa de soja" → bloqueada (legumbres)', estado({ nombre: 'Salsa de soja' }) === 'bloqueada');
+    comprobar('"Judías verdes" → bloqueada (legumbres)', estado({ nombre: 'Judías verdes' }) === 'bloqueada');
+    comprobar('"Gambas" → bloqueada (marisco)', estado({ nombre: 'Gambas' }) === 'bloqueada');
+    const cac = analizar({ nombre: 'Cacahuetes' }).motivos.map(m => m.texto).join(' ');
+    comprobar('"Cacahuete" cuenta como legumbre y fruto seco', /Legumbres/.test(cac) && /Frutos secos/.test(cac));
+    comprobar('Derivado en composición: "ovoalbúmina" → bloqueada', estado({ nombre: 'Fiambre', procesado: true, composicionCompleta: true, composicion: 'carne, sal, ovoalbúmina' }) === 'bloqueada');
+    comprobar('"Lecitina de soja" → bloqueada', estado({ nombre: 'Chocolate', procesado: true, composicionCompleta: true, composicion: 'cacao, azúcar, lecitina de soja' }) === 'bloqueada');
+    comprobar('"Lecitina" sin origen → revisar', estado({ nombre: 'Chocolate', procesado: true, composicionCompleta: true, composicion: 'cacao, azúcar, lecitina' }) === 'revisar');
+    comprobar('Rebozado → revisar', estado({ nombre: 'Pollo rebozado' }) === 'revisar');
+    comprobar('Salsa comercial → revisar', estado({ nombre: 'Salsa barbacoa' }) === 'revisar');
+    comprobar('Trazas en texto: "puede contener trazas de avellana" → bloqueada', estado({ nombre: 'Galleta', trazas: 'Puede contener trazas de avellana' }) === 'bloqueada');
+    comprobar('Marcado "contiene" huevo → bloqueada', estado({ nombre: 'X', alergenos: Object.assign(E.todoNo(), { huevo: 'contiene' }) }) === 'bloqueada');
+    comprobar('Marcado "trazas" de pescado → bloqueada', estado({ nombre: 'X', alergenos: Object.assign(E.todoNo(), { pescado: 'trazas' }) }) === 'bloqueada');
+    comprobar('Alérgeno "sin indicar" → revisar', estado({ nombre: 'X', alergenos: Object.assign(E.todoNo(), { pina: 'desconocido' }) }) === 'revisar');
+    comprobar('Procesado sin composición → revisar', estado({ nombre: 'Tomate frito', procesado: true }) === 'revisar');
+    comprobar('Procesado con composición no marcada completa → revisar', estado({ nombre: 'Pan', procesado: true, composicion: 'harina, agua' }) === 'revisar');
+    comprobar('"Pasta sin huevo" → revisar (no se da por buena)', estado({ nombre: 'Pasta sin huevo' }) === 'revisar');
+    comprobar('… tras confirmar la revisión → sin coincidencias', estado({ nombre: 'Pasta sin huevo', revisionTerminosConfirmada: true }) === 'sin_coincidencias');
+    comprobar('La confirmación NO anula un bloqueo', estado({ nombre: 'Pasta al huevo', revisionTerminosConfirmada: true }) === 'bloqueada');
+    comprobar('La confirmación NO anula un alérgeno sin indicar', estado({ nombre: 'X', revisionTerminosConfirmada: true, alergenos: Object.assign(E.todoNo(), { huevo: 'desconocido' }) }) === 'revisar');
+    comprobar('Ningún mensaje afirma que algo es "seguro"', !/segur/i.test(JSON.stringify(analizar({ nombre: 'Calabacín' }))));
+
+    // Al cambiar el texto, la confirmación se anula
+    E.ing('ps', 'Pasta sin huevo', 'hidrato', 'pasta', 70, 'crudo', { revisionTerminosConfirmada: true });
+    const cambio = M.Util.clonar(E.d.ingredientes.find(i => i.id === 'ps')); cambio.composicion = 'sémola, agua';
+    M.Ingredientes.guardar(E.d, cambio);
+    comprobar('Cambiar la composición anula la confirmación de revisión', E.d.ingredientes.find(i => i.id === 'ps').revisionTerminosConfirmada === false);
+
+    // Términos editables
+    comprobar('Añadir término propio', M.Alergenos.agregarTermino(E.d, 'Caseinato raro', 'huevo', 'bloquear').ok);
+    comprobar('El término propio se detecta', M.Alergenos.comprobarIngrediente(Object.assign(M.Datos.nuevoIngrediente(), { nombre: 'Con caseinato raro', alergenos: E.todoNo() }), terminos(E.d)).estado === 'bloqueada');
+    comprobar('No admite términos duplicados', !M.Alergenos.agregarTermino(E.d, 'caseinato RARO', 'huevo', 'bloquear').ok);
+    const nBase = M.Constantes.TERMINOS_BASE.length;
+    M.Alergenos.eliminarTermino(E.d, M.Constantes.TERMINOS_BASE[0].id);
+    comprobar('Los términos de serie no se pueden eliminar', M.Constantes.TERMINOS_BASE.length === nBase && terminos(E.d).some(t => t.id === M.Constantes.TERMINOS_BASE[0].id));
+    M.Alergenos.eliminarTermino(E.d, E.d.terminosUsuario[0].id);
+    comprobar('Los términos propios sí se pueden eliminar', E.d.terminosUsuario.length === 0);
+    let congelado = true; try { M.Constantes.EXCLUSIONES.push({ id: 'x' }); congelado = false; } catch (e) { /* esperado */ }
+    comprobar('Las exclusiones fijas no se pueden modificar', congelado && M.Constantes.EXCLUSIONES.length === 5);
+  }
+
+  /* 8. Bloqueo de recetas */
+  grupo('Bloqueo de recetas con ingredientes excluidos');
+  {
+    const E = crearEntorno(M);
+    E.ing('pasta_huevo', 'Pasta al huevo', 'hidrato', 'pasta', 70, 'crudo');
+    E.ing('verdura', 'Calabacín ficticio', 'verdura', '', 2, 'crudo');
+    E.ing('patata', 'Patata ficticia', 'hidrato', 'patata', 15, 'crudo');
+    E.rec('mala', 'Pasta con calabacín', [['pasta_huevo', 40, 'crudo'], ['verdura', 80, 'crudo']]);
+    E.rec('buena', 'Patata sola', [['patata', 100, 'crudo']]);
+    E.regla('g1', 'Verdura', 1, { comida: 'no_incluye', categoriaId: 'verdura', tipo: '' }, { cena: 'incluir', categoriaId: 'verdura', tipo: '' });
+    E.comida('lunes', [['Arroz', 'hidrato', 'arroz']]);
+    comprobar('La receta con pasta al huevo está bloqueada', M.Alergenos.comprobarReceta(E.d.recetas[0], E.d).estado === 'bloqueada');
+    const dia = M.Planificador.planificarDia(E.d, 'lunes');
+    comprobar('La exclusión prevalece: no se propone aunque sea la única que cumple las reglas', dia.receta && dia.receta.id === 'buena');
+    comprobar('… y el día queda pendiente porque la alternativa no cumple la regla', dia.estado === 'pendiente');
+    E.d.eleccionManual.lunes = 'mala';
+    const dia2 = M.Planificador.planificarDia(E.d, 'lunes');
+    comprobar('Una elección manual que pasa a estar bloqueada → estado "bloqueada"', dia2.estado === 'bloqueada');
+    E.d.recetas = E.d.recetas.filter(r => r.id === 'mala'); E.d.eleccionManual.lunes = null;
+    const dia3 = M.Planificador.planificarDia(E.d, 'lunes');
+    comprobar('Si todas están bloqueadas → sin propuesta automática', dia3.receta === null);
+    const recNombre = { id: 'n', nombre: 'Merluza con patata', lineas: [{ ingredienteId: 'patata', gramos: 100, estadoPeso: 'crudo' }] };
+    comprobar('Un nombre de receta con exclusión también bloquea', M.Alergenos.comprobarReceta(recNombre, E.d).estado === 'bloqueada');
+  }
+
+  /* 9. Reglas */
+  grupo('Funcionamiento de las reglas de complementariedad');
+  function entornoReglas() {
+    const E = crearEntorno(M);
+    E.ing('arroz', 'Arroz ficticio', 'hidrato', 'arroz', 80, 'crudo');
+    E.ing('patata', 'Patata ficticia', 'hidrato', 'patata', 15, 'crudo');
+    E.ing('pasta', 'Pasta ficticia', 'hidrato', 'pasta', 70, 'crudo');
+    E.ing('calabacin', 'Calabacín ficticio', 'verdura', '', 2, 'crudo');
+    E.ing('pollo', 'Pollo ficticio', 'proteina', 'pollo', 0, 'crudo');
+    E.ing('pavo', 'Pavo ficticio', 'proteina', 'pavo', 0, 'crudo');
+    E.rec('A', 'Arroz con calabacín', [['arroz', 30, 'crudo'], ['calabacin', 100, 'crudo']]);
+    E.rec('B', 'Patata con calabacín', [['patata', 150, 'crudo'], ['calabacin', 100, 'crudo']]);
+    E.rec('C', 'Pasta sola', [['pasta', 40, 'crudo']]);
+    E.comida('lunes', [['Arroz', 'hidrato', 'arroz'], ['Pollo', 'proteina', 'pollo']]);
+    return E;
+  }
+  {
+    const E = entornoReglas();
+    E.regla('g1', 'Verdura si no hubo', 1, { comida: 'no_incluye', categoriaId: 'verdura', tipo: '' }, { cena: 'incluir', categoriaId: 'verdura', tipo: '' });
+    E.regla('g2', 'Variar hidrato', 2, { comida: 'incluye', categoriaId: 'hidrato', tipo: '' }, { cena: 'evitar_mismo_tipo', categoriaId: 'hidrato', tipo: '' });
+    const dia = M.Planificador.planificarDia(E.d, 'lunes');
+    comprobar('Aplica las dos reglas cuya condición se cumple', dia.aplicables.length === 2);
+    comprobar('Propone la cena que cumple ambas (Patata con calabacín)', dia.receta && dia.receta.id === 'B', dia.receta && dia.receta.nombre);
+    comprobar('Estado compatible con todo documentado', dia.estado === 'compatible', dia.motivos.join(' | '));
+    comprobar('Explica el motivo', dia.explicacion.some(t => /cumple 2 de 2/.test(t)));
+    const repetida = M.Planificador.planificarDia(E.d, 'lunes');
+    comprobar('Determinista: el mismo resultado al repetir', repetida.receta.id === dia.receta.id && repetida.estado === dia.estado);
+    // Regla desactivada no se aplica
+    E.d.reglas[0].activa = false;
+    comprobar('Una regla desactivada no se aplica', M.Planificador.planificarDia(E.d, 'lunes').aplicables.length === 1);
+    E.d.reglas[0].activa = true;
+    // Condición no cumplida
+    E.comida('martes', [['Pasta', 'hidrato', 'pasta'], ['Ensalada', 'verdura', '']]);
+    const martes = M.Planificador.planificarDia(E.d, 'martes');
+    comprobar('Si la comida llevó verdura, la regla de verdura no se aplica', !martes.aplicables.some(r => r.id === 'g1'));
+    comprobar('Con pasta a mediodía no propone pasta', martes.receta && martes.receta.id !== 'C');
+    // Tipo concreto (si comió arroz, evitar arroz)
+    E.regla('g3', 'Evitar arroz', 1, { comida: 'incluye', categoriaId: 'hidrato', tipo: 'arroz' }, { cena: 'evitar', categoriaId: 'hidrato', tipo: 'arroz' });
+    comprobar('Regla con tipo concreto: aplica con arroz, no con pasta',
+      M.Planificador.planificarDia(E.d, 'lunes').aplicables.some(r => r.id === 'g3') && !M.Planificador.planificarDia(E.d, 'martes').aplicables.some(r => r.id === 'g3'));
+    // Componentes sin confirmar no cuentan
+    E.comida('miercoles', [['Arroz', 'hidrato', 'arroz'], ['Calabacín', 'verdura', '', false]]);
+    const mie = M.Planificador.planificarDia(E.d, 'miercoles');
+    comprobar('Un componente sin confirmar no se usa en las reglas', mie.aplicables.some(r => r.id === 'g1'));
+    comprobar('… y el día queda pendiente', mie.estado === 'pendiente' && mie.motivos.some(m => /sin confirmar/.test(m)));
+    // Tipo desconocido → indeterminado
+    E.ing('hid_sin_tipo', 'Cereal ficticio', 'hidrato', '', 60, 'crudo');
+    E.d.recetas = [E.rec('D', 'Cereal con calabacín', [['hid_sin_tipo', 30, 'crudo'], ['calabacin', 80, 'crudo']])];
+    const jue = M.Planificador.planificarDia(E.d, 'lunes');
+    const evalTipo = jue.evaluacion.find(e => e.regla.id === 'g2');
+    comprobar('Ingrediente sin "tipo" → la regla de variar queda indeterminada (no se supone)', evalTipo && evalTipo.resultado === 'indeterminado');
+    comprobar('… y el día queda pendiente', jue.estado === 'pendiente');
+  }
+
+  /* 10. Conflictos */
+  grupo('Resolución de conflictos entre reglas');
+  {
+    const E = entornoReglas();
+    E.regla('x', 'Incluir verdura', 1, { comida: 'incluye', categoriaId: 'hidrato', tipo: '' }, { cena: 'incluir', categoriaId: 'verdura', tipo: '' });
+    E.regla('y', 'Evitar verdura', 2, { comida: 'incluye', categoriaId: 'proteina', tipo: '' }, { cena: 'evitar', categoriaId: 'verdura', tipo: '' });
+    const dia = M.Planificador.planificarDia(E.d, 'lunes');
+    comprobar('Gana la regla de mayor prioridad (cena con verdura)', dia.receta && M.Recetas.ingredientesDe(E.d, dia.receta).some(i => i.categoriaId === 'verdura'));
+    comprobar('La explicación indica qué regla prevalece', dia.explicacion.some(t => /prevalece/.test(t)));
+    E.d.reglas.find(r => r.id === 'y').prioridad = 1;
+    const dia2 = M.Planificador.planificarDia(E.d, 'lunes');
+    comprobar('Con la misma prioridad → pendiente por conflicto', dia2.estado === 'pendiente' && dia2.motivos.some(m => /Conflicto/.test(m)));
+    // Desempate
+    const E2 = crearEntorno(M);
+    E2.ing('p', 'Patata ficticia', 'hidrato', 'patata', 15, 'crudo');
+    E2.rec('z', 'Zeta', [['p', 100, 'crudo']]); E2.rec('a', 'Alfa', [['p', 100, 'crudo']]);
+    E2.comida('lunes', [['Arroz', 'hidrato', 'arroz']]);
+    E2.regla('g', 'Variar', 1, { comida: 'incluye', categoriaId: 'hidrato', tipo: '' }, { cena: 'evitar_mismo_tipo', categoriaId: 'hidrato', tipo: '' });
+    const d3 = M.Planificador.planificarDia(E2.d, 'lunes');
+    comprobar('En empate total decide el orden alfabético y lo explica', d3.receta.id === 'a' && d3.explicacion.some(t => /alfabético/.test(t)));
+  }
+
+  /* 11. Pendientes */
+  grupo('Generación de propuestas pendientes de revisión');
+  {
+    const E = entornoReglas();
+    const sinMenu = M.Planificador.planificarDia(E.d, 'viernes');
+    comprobar('Sin menú del colegio → pendiente y sin propuesta automática', sinMenu.estado === 'pendiente' && sinMenu.receta === null);
+    const sinReglas = M.Planificador.planificarDia(E.d, 'lunes');
+    comprobar('Sin reglas activas → pendiente', sinReglas.estado === 'pendiente' && sinReglas.motivos.some(m => /reglas activas/.test(m)));
+    E.regla('g', 'Incluir fruta', 1, { comida: 'no_incluye', categoriaId: 'fruta', tipo: '' }, { cena: 'incluir', categoriaId: 'fruta', tipo: '' });
+    const nadie = M.Planificador.planificarDia(E.d, 'lunes');
+    comprobar('Ninguna cumple → muestra la más cercana como pendiente y dice qué no cumple', nadie.receta && nadie.estado === 'pendiente' && nadie.motivos.some(m => /Incluir fruta/.test(m)));
+    E.d.recetas = [];
+    const vacio = M.Planificador.planificarDia(E.d, 'lunes');
+    comprobar('Recetario vacío → "sin propuesta disponible"', vacio.estado === 'sin_propuesta', vacio.estado + ' ' + vacio.motivos.join('|'));
+    const E2 = entornoReglas();
+    E2.regla('g', 'Verdura', 1, { comida: 'no_incluye', categoriaId: 'verdura', tipo: '' }, { cena: 'incluir', categoriaId: 'verdura', tipo: '' });
+    const cambio = M.Util.clonar(E2.d.ingredientes.find(i => i.id === 'patata')); cambio.verificado = false; M.Ingredientes.guardar(E2.d, cambio);
+    E2.d.recetas = E2.d.recetas.filter(r => r.id === 'B');
+    const pend = M.Planificador.planificarDia(E2.d, 'lunes');
+    comprobar('Cumple las reglas pero con HC sin verificar → pendiente', pend.estado === 'pendiente' && pend.motivos.some(m => /pendiente de confirmar/.test(m)));
+    const ej = M.Datos.crearDatosIniciales();
+    const plan = M.Planificador.planificarSemana(ej);
+    comprobar('Datos de ejemplo: ningún día sale como compatible', plan.dias.every(d => d.estado !== 'compatible'));
+    comprobar('Datos de ejemplo: las reglas vienen desactivadas', ej.reglas.every(r => !r.activa));
+    comprobar('Datos de ejemplo: ningún dato de HC está verificado', ej.ingredientes.every(i => !i.verificado && i.ejemplo));
+  }
+
+  /* Menú: sugerencias */
+  grupo('Menú escolar: sugerencias por palabras clave');
+  {
+    const d = M.Datos.crearDatosIniciales(false);
+    d.menuColegio.lunes.texto = 'Macarrones con tomate, judías verdes y pollo asado. Fruta.';
+    const n = M.MenuEscolar.sugerirComponentes(d, 'lunes');
+    const comps = d.menuColegio.lunes.componentes;
+    comprobar('Sugiere componentes', n >= 3, 'n=' + n);
+    comprobar('Las sugerencias nacen sin confirmar', comps.every(c => !c.confirmado));
+    comprobar('Sugiere pasta (macarrones) y pollo', comps.some(c => c.tipo === 'pasta') && comps.some(c => c.tipo === 'pollo'));
+    comprobar('NO sugiere "judías verdes" como verdura', !comps.some(c => /judia/i.test(M.Util.normalizarTexto(c.texto))));
+    const avisos = M.Alergenos.comprobarTextoMenu(d.menuColegio.lunes, terminos(d));
+    comprobar('Avisa de que el menú del colegio contiene judías (legumbres)', avisos.some(a => a.exclusion === 'legumbres'));
+    comprobar('Repetir la sugerencia no duplica componentes', M.MenuEscolar.sugerirComponentes(d, 'lunes') === 0);
+  }
+
+  /* Revisión en dos fases */
+  grupo('Revisión obligatoria de alérgenos (dos fases)');
+  {
+    const E = entornoReglas();
+    E.regla('g', 'Verdura', 1, { comida: 'no_incluye', categoriaId: 'verdura', tipo: '' }, { cena: 'incluir', categoriaId: 'verdura', tipo: '' });
+    let plan = M.Planificador.planificarSemana(E.d);
+    comprobar('No se puede confirmar la fase 2 antes que la 1', !M.Revision.confirmar(E.d, 'fase2', plan.huella).ok);
+    M.Revision.confirmar(E.d, 'fase1', plan.huella); M.Revision.confirmar(E.d, 'fase2', plan.huella);
+    comprobar('Con las dos fases confirmadas → revisión completada', M.Revision.estado(E.d, plan.huella, plan.dias).completada);
+    const c = M.Util.clonar(E.d.ingredientes.find(i => i.id === 'calabacin')); c.composicion = 'otro texto'; M.Ingredientes.guardar(E.d, c);
+    plan = M.Planificador.planificarSemana(E.d);
+    const est = M.Revision.estado(E.d, plan.huella, plan.dias);
+    comprobar('Si cambia un ingrediente de la semana, la revisión caduca', !est.completada && est.fase1 === 'caducada');
+  }
+
+  /* 12. JSON */
+  grupo('Exportación e importación JSON');
+  {
+    const E = entornoReglas();
+    E.regla('g', 'Verdura', 1, { comida: 'no_incluye', categoriaId: 'verdura', tipo: '' }, { cena: 'incluir', categoriaId: 'verdura', tipo: '' });
+    M.Alergenos.agregarTermino(E.d, 'término ficticio', 'general', 'revisar');
+    const texto = JSON.stringify(M.CopiaSeguridad.crearCopia(E.d));
+    const r = M.CopiaSeguridad.leerCopia(texto);
+    comprobar('Exportar e importar devuelve los mismos datos', r.ok && JSON.stringify(r.datos) === JSON.stringify(M.Datos.normalizarDatos(E.d)), (r.errores || []).join(' '));
+    comprobar('JSON roto → error comprensible', !M.CopiaSeguridad.leerCopia('{"app": "planif').ok);
+    comprobar('Archivo de otra app → error', !M.CopiaSeguridad.leerCopia(JSON.stringify({ app: 'otra', versionDatos: 1, datos: {} })).ok);
+    const futura = JSON.parse(texto); futura.versionDatos = 99;
+    comprobar('Versión más nueva → error', /más nueva/.test(M.CopiaSeguridad.leerCopia(JSON.stringify(futura)).errores[0]));
+    const rota = JSON.parse(texto); rota.datos.recetas[0].lineas[0].ingredienteId = 'no_existe';
+    const rr = M.CopiaSeguridad.leerCopia(JSON.stringify(rota));
+    comprobar('Receta con ingrediente inexistente → error con su nombre', !rr.ok && rr.errores.some(e => /Arroz con calabacín/.test(e)), rr.errores.join(' '));
+    const sinLista = JSON.parse(texto); delete sinLista.datos.ingredientes;
+    comprobar('Falta una lista → error', !M.CopiaSeguridad.leerCopia(JSON.stringify(sinLista)).ok);
+    const malHc = JSON.parse(texto); malHc.datos.ingredientes[0].hc.gramos = 'mucho';
+    comprobar('Dato de HC no numérico → error', !M.CopiaSeguridad.leerCopia(JSON.stringify(malHc)).ok);
+    const malAl = JSON.parse(texto); malAl.datos.ingredientes[0].alergenos.huevo = 'quizas';
+    comprobar('Valor de alérgeno no válido → error', !M.CopiaSeguridad.leerCopia(JSON.stringify(malAl)).ok);
+    const intentoBase = JSON.parse(texto); intentoBase.datos.terminosUsuario.push({ id: 'zz', termino: 'x', exclusion: 'inventada', accion: 'bloquear' });
+    comprobar('Término con exclusión inventada → error', !M.CopiaSeguridad.leerCopia(JSON.stringify(intentoBase)).ok);
+    comprobar('Nombre de archivo con fecha', /^planificador-cenas-\d{4}-\d{2}-\d{2}\.json$/.test(M.CopiaSeguridad.nombreArchivo()));
+  }
+
+  /* 13. localStorage */
+  grupo('Conservación de datos en localStorage');
+  {
+    const clave = M.Constantes.CLAVE_ALMACEN;
+    const previo = localStorage.getItem(clave);
+    const E = entornoReglas();
+    comprobar('localStorage disponible', M.Almacen.disponible(localStorage));
+    comprobar('Guardar', M.Almacen.guardar(localStorage, E.d).ok);
+    const cargado = M.Almacen.cargar(localStorage);
+    comprobar('Cargar devuelve lo guardado', JSON.stringify(cargado.datos) === JSON.stringify(M.Datos.normalizarDatos(E.d)) && !cargado.aviso);
+    localStorage.setItem(clave, '{roto');
+    const danado = M.Almacen.cargar(localStorage);
+    comprobar('Datos dañados → aviso y copia aparte, sin bloquear la app', !!danado.aviso && localStorage.getItem(M.Constantes.CLAVE_RESPALDO_DANADO) === '{roto');
+    const lleno = { setItem() { throw new Error('QuotaExceeded'); }, getItem() { return null; }, removeItem() {} };
+    comprobar('Almacenamiento lleno → mensaje de error comprensible', /No se han podido guardar/.test(M.Almacen.guardar(lleno, E.d).error));
+    localStorage.removeItem(M.Constantes.CLAVE_RESPALDO_DANADO);
+    if (previo == null) localStorage.removeItem(clave); else localStorage.setItem(clave, previo);
+  }
+
+  /* Exclusiones médicas */
+  grupo('Exclusiones médicas y redacción');
+  {
+    comprobar('El código no contiene cálculos de insulina, dosis ni glucosa', !/insulin|dosis|glucosa|glucemia/i.test(html));
+    comprobar('No hay librerías ni URLs externas en la app', !/<script[^>]+src=|<link[^>]+href="http|fetch\(/i.test(html));
+  }
+}
+
+/* ---------- Prueba de humo de la interfaz (en un iframe de 390 px) ---------- */
+async function pruebasInterfaz() {
+  grupo('Interfaz: todas las pantallas se pintan sin errores');
+  localStorage.removeItem('planificadorCenas.datos'); // empezar con los datos de ejemplo
+  const marco = document.getElementById('marco');
+  const errores = [];
+  await new Promise(ok => { marco.onload = ok; marco.src = '../index.html#semana'; });
+  const w = marco.contentWindow, doc = marco.contentDocument;
+  w.addEventListener('error', e => errores.push(e.message));
+  const esperar = ms => new Promise(ok => setTimeout(ok, ms));
+  for (const vista of ['semana', 'menu', 'recetas', 'ingredientes', 'reglas', 'alergenos', 'ajustes']) {
+    w.location.hash = vista; await esperar(80);
+    const contenido = doc.getElementById('vista').innerHTML;
+    comprobar(`Pantalla «${vista}»`, contenido.length > 200 && !errores.length, errores.join(' '));
+    comprobar(`Pantalla «${vista}» sin desplazamiento horizontal a 390 px`, doc.documentElement.scrollWidth <= w.innerWidth + 1, `ancho ${doc.documentElement.scrollWidth}`);
+  }
+  grupo('Interfaz: formularios');
+  const pulsar = sel => { const b = doc.querySelector(sel); if (b) b.click(); return !!b; };
+  w.location.hash = 'ingredientes'; await esperar(80);
+  comprobar('Abrir ficha de ingrediente', pulsar('[data-accion="ing-editar"]') && doc.getElementById('dialogo').open);
+  comprobar('La ficha muestra la comprobación automática de alérgenos', doc.getElementById('analisis-ing').textContent.length > 10);
+  pulsar('[data-accion="dlg-cerrar"]');
+  w.location.hash = 'recetas'; await esperar(80);
+  comprobar('Abrir receta y ver tabla de hidratos', pulsar('[data-accion="receta-editar"]') && !!doc.querySelector('#resumen-receta table'));
+  pulsar('[data-accion="linea-nueva"]');
+  comprobar('Añadir línea de ingrediente en la receta', doc.querySelectorAll('.linea-receta').length >= 2);
+  pulsar('[data-accion="dlg-cerrar"]');
+  w.location.hash = 'reglas'; await esperar(80);
+  comprobar('Abrir regla y ver su frase', pulsar('[data-accion="regla-editar"]') && /Si la comida/.test(doc.getElementById('frase-regla').textContent));
+  pulsar('[data-accion="dlg-cerrar"]');
+  // Escribir un menú, sugerir y comprobar que se guarda
+  w.location.hash = 'menu'; await esperar(80);
+  const ta = doc.querySelector('[data-accion="menu-texto"][data-dia="lunes"]');
+  ta.value = 'Arroz con pollo y ensalada'; ta.dispatchEvent(new w.Event('change', { bubbles: true }));
+  pulsar('[data-accion="sugerir"][data-dia="lunes"]'); await esperar(50);
+  const guardado = JSON.parse(localStorage.getItem('planificadorCenas.datos'));
+  comprobar('El menú y las sugerencias se guardan en localStorage', guardado.menuColegio.lunes.texto === 'Arroz con pollo y ensalada' && guardado.menuColegio.lunes.componentes.length >= 3);
+  await new Promise(ok => { marco.onload = ok; w.location.reload(); });
+  const doc2 = marco.contentDocument; marco.contentWindow.location.hash = 'menu'; await esperar(80);
+  comprobar('Tras recargar la página, el menú sigue ahí', doc2.querySelector('[data-accion="menu-texto"][data-dia="lunes"]').value === 'Arroz con pollo y ensalada');
+  comprobar('Sin errores de JavaScript durante la prueba', !errores.length, errores.join(' | '));
+  localStorage.removeItem('planificadorCenas.datos');
+}
+
+(async () => {
+  try { await pruebasNucleo(); } catch (e) { comprobar('Error inesperado en pruebas de lógica', false, e.stack || e.message); }
+  try { await pruebasInterfaz(); } catch (e) { comprobar('Error inesperado en pruebas de interfaz', false, e.stack || e.message); }
+  pintarResultados();
+})();
+</script>
+</body>
+</html>

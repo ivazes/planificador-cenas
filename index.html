@@ -1,0 +1,1949 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#2f6fdf">
+<!--
+  PREPARACIÓN PWA (no desarrollada todavía):
+  Para convertir esta app en instalable bastaría con añadir aquí:
+    <link rel="manifest" href="manifest.json">
+  y registrar un service worker al final del módulo INTERFAZ (ver comentario "PWA").
+  Toda la lógica ya funciona sin conexión y sin servidor.
+-->
+<title>Planificador de cenas</title>
+<style>
+/* =========================================================
+   ESTILOS — diseño pensado primero para móvil
+   ========================================================= */
+:root{
+  --fondo:#f4f6f9; --tarjeta:#ffffff; --texto:#1c2330; --suave:#5d6878; --borde:#dde2e8;
+  --primario:#2f6fdf; --primario-suave:#e8f0fd;
+  --ok:#1d7343; --ok-fondo:#e2f4e9;
+  --pend:#8a5600; --pend-fondo:#fff2d4;
+  --sin:#475263; --sin-fondo:#eceff3;
+  --bloq:#a61e2a; --bloq-fondo:#fde3e5;
+  --radio:12px;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;background:var(--fondo);color:var(--texto);font-size:16px;line-height:1.45;-webkit-text-size-adjust:100%}
+h1{font-size:1.15rem;margin:0}
+h2{font-size:1.2rem;margin:4px 0 12px}
+h3{font-size:1.05rem;margin:0 0 6px}
+p{margin:6px 0}
+small,.suave{color:var(--suave)}
+a{color:var(--primario)}
+
+/* Cabecera y pestañas */
+.cabecera{position:sticky;top:0;z-index:20;background:var(--tarjeta);border-bottom:1px solid var(--borde)}
+.cabecera .titulo{padding:10px 16px 4px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.pestanas{display:flex;gap:4px;overflow-x:auto;padding:4px 12px 8px;scrollbar-width:none}
+.pestanas::-webkit-scrollbar{display:none}
+.pestanas a{flex:0 0 auto;text-decoration:none;color:var(--suave);padding:8px 12px;border-radius:999px;font-size:.92rem;white-space:nowrap}
+.pestanas a.activa{background:var(--primario);color:#fff}
+
+main{max-width:760px;margin:0 auto;padding:14px 16px 90px}
+.pie{max-width:760px;margin:0 auto;padding:0 16px 30px;font-size:.8rem;color:var(--suave)}
+
+/* Tarjetas y elementos comunes */
+.tarjeta{background:var(--tarjeta);border:1px solid var(--borde);border-radius:var(--radio);padding:14px;margin-bottom:12px}
+.tarjeta.compacta{padding:10px 12px}
+.fila{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.fila.entre{justify-content:space-between}
+.pila>*+*{margin-top:8px}
+.separador{border:0;border-top:1px solid var(--borde);margin:10px 0}
+.lista{list-style:none;margin:0;padding:0}
+.lista li{padding:6px 0;border-bottom:1px solid var(--borde)}
+.lista li:last-child{border-bottom:0}
+.vacio{text-align:center;color:var(--suave);padding:20px 10px}
+
+/* Botones */
+button,.boton{font:inherit;font-size:.95rem;border:1px solid var(--borde);background:var(--tarjeta);color:var(--texto);border-radius:10px;padding:9px 14px;min-height:42px;cursor:pointer}
+button.primario{background:var(--primario);border-color:var(--primario);color:#fff}
+button.peligro{color:var(--bloq);border-color:#f0b9be}
+button.pequeno{min-height:34px;padding:5px 10px;font-size:.85rem}
+button:disabled{opacity:.45;cursor:not-allowed}
+.acciones{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+
+/* Formularios */
+label{display:block;font-size:.88rem;color:var(--suave);margin-bottom:8px}
+input,select,textarea{font:inherit;font-size:16px;color:var(--texto);width:100%;margin-top:3px;padding:9px 10px;border:1px solid var(--borde);border-radius:9px;background:#fff}
+textarea{min-height:70px;resize:vertical}
+label.check{display:flex;gap:10px;align-items:flex-start;color:var(--texto);font-size:.93rem}
+label.check input{width:22px;height:22px;margin:0;flex:0 0 auto}
+fieldset{border:1px solid var(--borde);border-radius:var(--radio);padding:10px 12px;margin:0 0 12px}
+legend{font-weight:600;padding:0 6px;font-size:.95rem}
+.rejilla2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.rejilla3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+@media (max-width:420px){.rejilla3{grid-template-columns:1fr 1fr}.rejilla3>:last-child{grid-column:1 / -1}}
+
+/* Etiquetas de estado (siempre con texto, nunca solo color) */
+.etq{display:inline-flex;align-items:center;gap:4px;font-size:.78rem;font-weight:600;padding:3px 9px;border-radius:999px;background:var(--sin-fondo);color:var(--sin);white-space:nowrap}
+.etq.ok{background:var(--ok-fondo);color:var(--ok)}
+.etq.pend{background:var(--pend-fondo);color:var(--pend)}
+.etq.sin{background:var(--sin-fondo);color:var(--sin)}
+.etq.bloq{background:var(--bloq-fondo);color:var(--bloq)}
+.etq.ejemplo{background:#efe6ff;color:#5b2ca8}
+.etq.info{background:var(--primario-suave);color:var(--primario)}
+.chip{display:inline-block;font-size:.8rem;padding:2px 8px;border-radius:8px;background:var(--primario-suave);color:#1f4fa8;margin:2px 4px 2px 0}
+.chip.sin-confirmar{background:#fff;border:1px dashed var(--pend);color:var(--pend)}
+
+/* Tarjeta de día (pantalla principal) */
+.dia{border-left:6px solid var(--sin)}
+.dia.compatible{border-left-color:var(--ok)}
+.dia.pendiente{border-left-color:#e0a100}
+.dia.sin_propuesta{border-left-color:var(--sin)}
+.dia.bloqueada{border-left-color:var(--bloq)}
+.dia .bloque{margin-top:10px}
+.dia .rotulo{font-size:.75rem;text-transform:uppercase;letter-spacing:.04em;color:var(--suave);font-weight:600}
+.cena-nombre{font-size:1.05rem;font-weight:600}
+.hc{font-variant-numeric:tabular-nums;font-weight:600}
+details{margin-top:8px}
+summary{cursor:pointer;color:var(--primario);font-size:.92rem;padding:4px 0}
+.motivos{margin:6px 0 0;padding-left:18px;font-size:.9rem}
+.motivos li{margin:3px 0}
+.r-cumple{color:var(--ok)} .r-no{color:var(--bloq)} .r-ind{color:var(--pend)}
+
+/* Avisos */
+.aviso{border-radius:var(--radio);padding:10px 12px;margin-bottom:12px;font-size:.92rem}
+.aviso.ok{background:var(--ok-fondo);color:var(--ok)}
+.aviso.pend{background:var(--pend-fondo);color:#6b4300}
+.aviso.bloq{background:var(--bloq-fondo);color:var(--bloq)}
+.aviso.info{background:var(--primario-suave);color:#1f4fa8}
+
+/* Tabla de hidratos */
+.tabla{width:100%;border-collapse:collapse;font-size:.86rem}
+.tabla th,.tabla td{text-align:left;padding:5px 4px;border-bottom:1px solid var(--borde);vertical-align:top}
+.tabla td.num,.tabla th.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+
+/* Líneas de receta en el formulario */
+.linea-receta{border:1px solid var(--borde);border-radius:10px;padding:8px;margin-bottom:8px}
+.linea-receta .rejilla3{align-items:end}
+
+/* Componentes del menú */
+.componente{display:grid;grid-template-columns:1fr 1fr;gap:6px;border:1px solid var(--borde);border-radius:10px;padding:8px;margin-bottom:6px}
+.componente .ancho{grid-column:1 / -1}
+.componente label{margin:0}
+
+/* Diálogo (formularios) */
+dialog{border:0;padding:0;border-radius:16px;width:min(680px,100vw - 16px);max-height:calc(100vh - 16px);background:var(--fondo)}
+dialog::backdrop{background:rgba(15,20,30,.5)}
+.dialogo-cab{position:sticky;top:0;background:var(--tarjeta);border-bottom:1px solid var(--borde);padding:12px 16px;display:flex;justify-content:space-between;align-items:center;z-index:2}
+.dialogo-cuerpo{padding:14px 16px}
+.dialogo-pie{position:sticky;bottom:0;background:var(--tarjeta);border-top:1px solid var(--borde);padding:10px 16px;display:flex;gap:8px;justify-content:flex-end}
+@media (max-width:560px){dialog{width:100vw;max-width:100vw;height:100%;max-height:100%;border-radius:0;margin:0}}
+
+/* Mensaje flotante */
+#mensaje{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#1c2330;color:#fff;padding:10px 16px;border-radius:10px;font-size:.92rem;max-width:calc(100vw - 32px);opacity:0;pointer-events:none;transition:opacity .2s;z-index:50}
+#mensaje.visible{opacity:1}
+.buscador{margin-bottom:10px}
+</style>
+</head>
+<body>
+
+<header class="cabecera">
+  <div class="titulo"><h1>Planificador de cenas</h1><span id="estado-guardado" class="etq sin">Guardado local</span></div>
+  <nav class="pestanas" id="pestanas"></nav>
+</header>
+
+<main id="vista" aria-live="polite"></main>
+
+<footer class="pie">
+  Herramienta de organización de cenas según las reglas que tú defines. No ofrece recomendaciones médicas,
+  nutricionales ni de tratamiento. La revisión final de ingredientes y alérgenos corresponde siempre a la persona usuaria.
+</footer>
+
+<dialog id="dialogo"></dialog>
+<div id="mensaje" role="status"></div>
+
+<!-- =====================================================================
+     NÚCLEO: lógica sin interfaz (datos, reglas, cálculos, alérgenos...).
+     No toca el DOM, por eso puede probarse de forma aislada (ver pruebas/).
+     ===================================================================== -->
+<script id="nucleo">
+'use strict';
+
+/* =========================================================
+   MÓDULO: UTILIDADES
+   Funciones pequeñas reutilizadas por el resto de módulos.
+   ========================================================= */
+const Util = (() => {
+  /** Pasa a minúsculas, quita tildes (también ñ→n) y signos; deja palabras separadas por un espacio. */
+  function normalizarTexto(texto) {
+    return String(texto == null ? '' : texto)
+      .toLowerCase()
+      .normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+  }
+
+  /** Terminaciones admitidas tras un término (plurales y género): "huevo" encuentra "huevos". */
+  const TERMINACIONES = ['', 's', 'es', 'a', 'as', 'o', 'os'];
+
+  /**
+   * Busca un término (ya normalizado) en un texto (ya normalizado).
+   * El término debe empezar al inicio de una palabra y acabar en fin de palabra
+   * o con una terminación de plural/género. Devuelve las posiciones encontradas.
+   */
+  function buscarTermino(textoNorm, terminoNorm) {
+    const posiciones = [];
+    if (!terminoNorm || !textoNorm) return posiciones;
+    const texto = ' ' + textoNorm + ' ';
+    const buscado = ' ' + terminoNorm;
+    let i = texto.indexOf(buscado);
+    while (i !== -1) {
+      const finTermino = i + buscado.length;
+      const finPalabra = texto.indexOf(' ', finTermino);
+      const resto = texto.slice(finTermino, finPalabra);
+      if (TERMINACIONES.includes(resto)) posiciones.push(i); // i = índice en textoNorm donde empieza el término
+      i = texto.indexOf(buscado, i + 1);
+    }
+    return posiciones;
+  }
+
+  /** ¿El texto justo anterior a la posición es una negación ("sin", "libre de", "no contiene")? */
+  function precedidoDeNegacion(textoNorm, posicion) {
+    const anterior = textoNorm.slice(0, posicion).trim();
+    return /(^|\s)(sin|libre de|no contiene|sin trazas de)$/.test(anterior);
+  }
+
+  function generarId(prefijo) {
+    return prefijo + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
+  function clonar(objeto) { return JSON.parse(JSON.stringify(objeto)); }
+  function esNumero(valor) { return typeof valor === 'number' && Number.isFinite(valor); }
+  /** Convierte texto del formulario en número (admite coma decimal). Vacío o inválido → null. */
+  function aNumero(valor) {
+    if (valor === '' || valor == null) return null;
+    const n = Number(String(valor).trim().replace(',', '.'));
+    return Number.isFinite(n) ? n : null;
+  }
+  function redondear1(n) { return Math.round(n * 10) / 10; }
+  function formatearNumero(n) { return esNumero(n) ? String(redondear1(n)).replace('.', ',') : '—'; }
+  function compararTexto(a, b) { return String(a).localeCompare(String(b), 'es', { sensitivity: 'base' }); }
+  /** Huella corta de un texto (para saber si algo ha cambiado). No es criptográfica. */
+  function huella(texto) {
+    let h = 5381;
+    for (let i = 0; i < texto.length; i++) h = ((h << 5) + h + texto.charCodeAt(i)) | 0;
+    return (h >>> 0).toString(36);
+  }
+  function porId(lista) { const mapa = {}; lista.forEach(e => { mapa[e.id] = e; }); return mapa; }
+
+  return { normalizarTexto, buscarTermino, precedidoDeNegacion, generarId, clonar, esNumero, aNumero,
+           redondear1, formatearNumero, compararTexto, huella, porId };
+})();
+
+/* =========================================================
+   MÓDULO: CONSTANTES
+   Las exclusiones fijas y sus términos base están en el código
+   a propósito: no se pueden desactivar ni borrar desde la app
+   ni mediante una copia de seguridad importada.
+   ========================================================= */
+const Constantes = (() => {
+  const VERSION_DATOS = 1;
+  const CLAVE_ALMACEN = 'planificadorCenas.datos';
+  const CLAVE_RESPALDO_DANADO = 'planificadorCenas.datosDanados';
+  const OBJETIVO_HC_ORIENTATIVO = 30; // solo se muestra como referencia; nunca modifica nada
+
+  const DIAS = [
+    { id: 'lunes', nombre: 'Lunes' }, { id: 'martes', nombre: 'Martes' }, { id: 'miercoles', nombre: 'Miércoles' },
+    { id: 'jueves', nombre: 'Jueves' }, { id: 'viernes', nombre: 'Viernes' }
+  ];
+  const ESTADOS_PESO = { crudo: 'Crudo', cocido: 'Cocido', no_aplica: 'No aplica' };
+  const FUENTES = { tabla_personal: 'Tabla personal de referencia', etiqueta: 'Etiqueta del fabricante', otra: 'Otra fuente' };
+  const ESTADOS_ALERGENO = { desconocido: 'Sin indicar', no_contiene: 'No contiene', contiene: 'Contiene', trazas: 'Puede contener trazas' };
+
+  /** Exclusiones absolutas. No editables. */
+  const EXCLUSIONES = Object.freeze([
+    { id: 'huevo', nombre: 'Huevo' },
+    { id: 'pescado', nombre: 'Pescados y marisco' },
+    { id: 'legumbres', nombre: 'Legumbres (incluidas soja y judías verdes)' },
+    { id: 'frutos_secos', nombre: 'Frutos secos' },
+    { id: 'pina', nombre: 'Piña' }
+  ]);
+  const ID_GENERAL = 'general'; // términos que piden revisión sin ser una exclusión concreta
+
+  /**
+   * Términos base. accion 'bloquear' = coincidencia con una exclusión → receta bloqueada.
+   * accion 'revisar' = posible derivado u origen dudoso → pendiente de revisión.
+   * Se buscan sin tildes, sin mayúsculas y admitiendo plurales (ver Util.buscarTermino).
+   */
+  function t(exclusion, accion, lista) { return lista.map(termino => ({ termino, exclusion, accion })); }
+  const TERMINOS_BASE = Object.freeze([
+    ...t('huevo', 'bloquear', ['huevo', 'clara de huevo', 'yema', 'ovoproducto', 'ovoalbumina', 'albumina', 'lisozima',
+      'ovomucoide', 'ovotransferrina', 'mayonesa', 'merengue', 'egg']),
+    ...t('huevo', 'revisar', ['tortilla', 'alioli', 'flan', 'natilla', 'bizcocho', 'magdalena', 'pasta fresca', 'lecitina',
+      'rebozado', 'rebozada', 'empanado', 'empanada', 'empanadilla', 'gabardina', 'croqueta', 'nugget', 'varitas']),
+    ...t('pescado', 'bloquear', ['pescado', 'pescadilla', 'merluza', 'bacalao', 'atun', 'bonito', 'salmon', 'sardina',
+      'boqueron', 'anchoa', 'caballa', 'lenguado', 'gallo', 'rape', 'dorada', 'lubina', 'trucha', 'emperador', 'pez espada',
+      'panga', 'tilapia', 'abadejo', 'perca', 'surimi', 'fumet', 'marisco', 'gamba', 'langostino', 'cigala', 'cangrejo',
+      'mejillon', 'almeja', 'berberecho', 'calamar', 'chipiron', 'sepia', 'pulpo', 'pota', 'crustaceo', 'molusco', 'fish']),
+    ...t('pescado', 'revisar', ['omega 3', 'aceite de higado']),
+    ...t('legumbres', 'bloquear', ['legumbre', 'soja', 'soya', 'tofu', 'tempeh', 'edamame', 'miso', 'tamari', 'judia',
+      'alubia', 'frijol', 'garbanzo', 'lenteja', 'guisante', 'haba', 'altramuz', 'cacahuete', 'cacahuate', 'mani', 'hummus',
+      'falafel', 'pocha', 'azuki', 'soy']),
+    ...t('legumbres', 'revisar', ['e322', 'proteina vegetal', 'garrofin', 'algarroba', 'goma guar', 'e410', 'e412',
+      'vaina', 'regaliz', 'harina de legumbres']),
+    ...t('frutos_secos', 'bloquear', ['fruto seco', 'frutos secos', 'almendra', 'avellana', 'nuez', 'nueces', 'anacardo',
+      'pistacho', 'pinon', 'piñones', 'macadamia', 'pecana', 'cacahuete', 'cacahuate', 'mani', 'mazapan', 'turron',
+      'praline', 'frangipane', 'nougat', 'nuts']),
+    ...t('frutos_secos', 'revisar', ['castana', 'crema de cacao', 'crocanti', 'granola', 'muesli']),
+    ...t('pina', 'bloquear', ['pina', 'anana', 'ananas', 'pineapple']),
+    ...t('pina', 'revisar', ['fruta tropical', 'frutas tropicales', 'macedonia', 'multifruta', 'coctel de frutas', 'bromelina']),
+    ...t(ID_GENERAL, 'revisar', ['salsa', 'puede contener', 'trazas', 'contaminacion cruzada', 'aroma', 'caldo',
+      'preparado', 'precocinado', 'sazonador', 'especias'])
+  ].map((term, i) => Object.freeze({ id: 'base_' + i, ...term })));
+
+  const CATEGORIAS_INICIALES = [
+    { id: 'hidrato', nombre: 'Hidrato' }, { id: 'proteina', nombre: 'Proteína' }, { id: 'verdura', nombre: 'Verdura' },
+    { id: 'fruta', nombre: 'Fruta' }, { id: 'grasa', nombre: 'Grasa' }, { id: 'otra', nombre: 'Otra' }
+  ];
+
+  /** Diccionario inicial de palabras clave para SUGERIR componentes del menú escolar (editable). */
+  function k(categoriaId, tipo, lista) { return lista.map(termino => ({ termino, categoriaId, tipo })); }
+  const PALABRAS_CLAVE_INICIALES = [
+    ...k('hidrato', 'arroz', ['arroz', 'paella', 'risotto']),
+    ...k('hidrato', 'pasta', ['pasta', 'macarron', 'espagueti', 'fideo', 'tallarin', 'lazos', 'hélices', 'canelon', 'lasaña']),
+    ...k('hidrato', 'patata', ['patata', 'pure de patata']),
+    ...k('hidrato', 'pan', ['pan']),
+    ...k('hidrato', 'cuscus', ['cuscus']),
+    ...k('proteina', 'pollo', ['pollo']),
+    ...k('proteina', 'pavo', ['pavo']),
+    ...k('proteina', 'ternera', ['ternera']),
+    ...k('proteina', 'cerdo', ['cerdo', 'lomo']),
+    ...k('proteina', 'cordero', ['cordero']),
+    ...k('verdura', '', ['verdura', 'calabacin', 'zanahoria', 'tomate', 'lechuga', 'ensalada', 'espinaca', 'brocoli',
+      'coliflor', 'pimiento', 'puerro', 'calabaza', 'berenjena', 'acelga', 'champiñon', 'cebolla', 'pepino', 'menestra']),
+    ...k('fruta', '', ['fruta', 'manzana', 'pera', 'platano', 'naranja', 'mandarina', 'melon', 'sandia', 'fresa', 'kiwi',
+      'uva', 'melocoton'])
+  ];
+
+  const ESTADOS_DIA = {
+    compatible: { texto: 'Compatible con tus reglas', icono: '✓', clase: 'ok' },
+    pendiente: { texto: 'Pendiente de revisar', icono: '!', clase: 'pend' },
+    sin_propuesta: { texto: 'Sin propuesta disponible', icono: '–', clase: 'sin' },
+    bloqueada: { texto: 'Bloqueada por exclusión o posible alérgeno', icono: '✕', clase: 'bloq' }
+  };
+  const ESTADOS_HC = {
+    completo: { texto: 'Cálculo completo y documentado', clase: 'ok' },
+    pendiente: { texto: 'Cálculo pendiente de confirmar', clase: 'pend' },
+    incompleto: { texto: 'Cálculo incompleto', clase: 'sin' }
+  };
+  const ESTADOS_ALERGIA_RECETA = {
+    sin_coincidencias: { texto: 'Sin coincidencias en los datos introducidos', clase: 'ok' },
+    revisar: { texto: 'Requiere revisión de alérgenos', clase: 'pend' },
+    bloqueada: { texto: 'Bloqueada por exclusión', clase: 'bloq' }
+  };
+
+  return { VERSION_DATOS, CLAVE_ALMACEN, CLAVE_RESPALDO_DANADO, OBJETIVO_HC_ORIENTATIVO, DIAS, ESTADOS_PESO, FUENTES,
+           ESTADOS_ALERGENO, EXCLUSIONES, ID_GENERAL, TERMINOS_BASE, CATEGORIAS_INICIALES, PALABRAS_CLAVE_INICIALES,
+           ESTADOS_DIA, ESTADOS_HC, ESTADOS_ALERGIA_RECETA };
+})();
+
+/* =========================================================
+   MÓDULO: GESTIÓN DE DATOS
+   Estructura de datos, valores por defecto, datos de ejemplo
+   y "normalización" (rellena campos que falten al cargar o importar).
+   ========================================================= */
+const Datos = (() => {
+  const C = Constantes;
+
+  function alergenosDesconocidos() {
+    const a = {}; C.EXCLUSIONES.forEach(e => { a[e.id] = 'desconocido'; }); return a;
+  }
+  function nuevoIngrediente() {
+    return { id: Util.generarId('ing'), nombre: '', categoriaId: 'otra', tipo: '',
+      hc: { gramos: null, base: 100, estadoPeso: 'crudo' }, fuente: { clase: '', detalle: '' }, verificado: false,
+      procesado: false, composicion: '', composicionCompleta: false, alergenos: alergenosDesconocidos(),
+      trazas: '', alergenosNotas: '', revisionTerminosConfirmada: false, observaciones: '', ejemplo: false };
+  }
+  function nuevaReceta() {
+    return { id: Util.generarId('rec'), nombre: '', descripcion: '', lineas: [], observaciones: '', ejemplo: false };
+  }
+  function nuevaLinea() { return { ingredienteId: '', gramos: null, estadoPeso: 'crudo' }; }
+  function nuevaRegla() {
+    return { id: Util.generarId('reg'), nombre: '', descripcion: '', activa: true, prioridad: 1,
+      condicion: { comida: 'no_incluye', categoriaId: 'verdura', tipo: '' },
+      accion: { cena: 'incluir', categoriaId: 'verdura', tipo: '' }, ejemplo: false };
+  }
+  function nuevoComponente(texto, categoriaId, tipo, origen) {
+    return { id: Util.generarId('com'), texto: texto || '', categoriaId: categoriaId || 'otra', tipo: tipo || '',
+      confirmado: origen === 'manual', origen: origen || 'manual' };
+  }
+  function menuVacio() {
+    const m = {}; C.DIAS.forEach(d => { m[d.id] = { texto: '', componentes: [] }; }); return m;
+  }
+  function eleccionVacia() {
+    const e = {}; C.DIAS.forEach(d => { e[d.id] = null; }); return e;
+  }
+
+  /** Datos de ejemplo FICTICIOS: marcados con ejemplo:true, sin verificar y con alérgenos "sin indicar". */
+  function datosEjemplo() {
+    const fuente = { clase: 'otra', detalle: 'DATO FICTICIO DE EJEMPLO — no usar' };
+    function ing(id, nombre, categoriaId, tipo, gramos, estadoPeso, extra) {
+      return Object.assign(nuevoIngrediente(), { id, nombre, categoriaId, tipo, hc: { gramos, base: 100, estadoPeso },
+        fuente: Util.clonar(fuente), ejemplo: true, observaciones: 'Ingrediente de ejemplo con datos ficticios.' }, extra || {});
+    }
+    const ingredientes = [
+      ing('ej_arroz', 'Arroz', 'hidrato', 'arroz', 80, 'crudo'),
+      ing('ej_patata', 'Patata', 'hidrato', 'patata', 15, 'crudo'),
+      ing('ej_pan', 'Pan de barra', 'hidrato', 'pan', 50, 'no_aplica',
+        { procesado: true, composicion: 'harina de trigo, agua, sal, levadura', composicionCompleta: false }),
+      ing('ej_pollo', 'Pechuga de pollo', 'proteina', 'pollo', 0, 'crudo'),
+      ing('ej_calabacin', 'Calabacín', 'verdura', '', 2, 'crudo'),
+      ing('ej_zanahoria', 'Zanahoria', 'verdura', '', 7, 'crudo'),
+      ing('ej_aceite', 'Aceite de oliva', 'grasa', '', 0, 'no_aplica'),
+      ing('ej_tomate', 'Tomate frito comercial', 'otra', '', 8, 'no_aplica', { procesado: true })
+    ];
+    function rec(id, nombre, lineas) {
+      return { id, nombre, descripcion: 'Receta de ejemplo (ficticia).', observaciones: '', ejemplo: true,
+        lineas: lineas.map(([ingredienteId, gramos, estadoPeso]) => ({ ingredienteId, gramos, estadoPeso })) };
+    }
+    const recetas = [
+      rec('ej_r1', 'Puré de calabacín y patata con pollo',
+        [['ej_patata', 150, 'crudo'], ['ej_calabacin', 100, 'crudo'], ['ej_pollo', 60, 'crudo'], ['ej_aceite', 5, 'no_aplica']]),
+      rec('ej_r2', 'Pollo con zanahoria y pan', [['ej_pollo', 70, 'crudo'], ['ej_zanahoria', 80, 'crudo'], ['ej_pan', 40, 'no_aplica']]),
+      rec('ej_r3', 'Arroz con tomate y pollo', [['ej_arroz', 35, 'crudo'], ['ej_tomate', 40, 'no_aplica'], ['ej_pollo', 50, 'crudo']]),
+      rec('ej_r4', 'Arroz con calabacín (peso cocido)', [['ej_arroz', 100, 'cocido'], ['ej_calabacin', 80, 'crudo']])
+    ];
+    function regla(id, nombre, descripcion, prioridad, condicion, accion) {
+      return { id, nombre, descripcion, activa: false, prioridad, condicion, accion, ejemplo: true };
+    }
+    const reglas = [
+      regla('ej_g1', 'Verdura si no hubo verdura', 'Si en el colegio no hubo verdura, la cena debe llevarla.', 1,
+        { comida: 'no_incluye', categoriaId: 'verdura', tipo: '' }, { cena: 'incluir', categoriaId: 'verdura', tipo: '' }),
+      regla('ej_g2', 'Variar el tipo de hidrato', 'No repetir en la cena el mismo tipo de hidrato del mediodía.', 2,
+        { comida: 'incluye', categoriaId: 'hidrato', tipo: '' }, { cena: 'evitar_mismo_tipo', categoriaId: 'hidrato', tipo: '' }),
+      regla('ej_g3', 'Si comió arroz, otro hidrato', 'Si al mediodía hubo arroz, evitar arroz en la cena.', 2,
+        { comida: 'incluye', categoriaId: 'hidrato', tipo: 'arroz' }, { cena: 'evitar', categoriaId: 'hidrato', tipo: 'arroz' }),
+      regla('ej_g4', 'No repetir proteína', 'Evitar la misma proteína en comida y cena.', 3,
+        { comida: 'incluye', categoriaId: 'proteina', tipo: '' }, { cena: 'evitar_mismo_tipo', categoriaId: 'proteina', tipo: '' })
+    ];
+    return { ingredientes, recetas, reglas };
+  }
+
+  function crearDatosIniciales(conEjemplos) {
+    const ej = conEjemplos === false ? { ingredientes: [], recetas: [], reglas: [] } : datosEjemplo();
+    return {
+      versionDatos: C.VERSION_DATOS,
+      categorias: Util.clonar(C.CATEGORIAS_INICIALES),
+      ingredientes: ej.ingredientes,
+      recetas: ej.recetas,
+      reglas: ej.reglas,
+      palabrasClave: C.PALABRAS_CLAVE_INICIALES.map(p => ({ id: Util.generarId('pc'), ...p })),
+      terminosUsuario: [],
+      menuColegio: menuVacio(),
+      eleccionManual: eleccionVacia(),
+      revisionAlergenos: { fase1: null, fase2: null }
+    };
+  }
+
+  /**
+   * Completa campos ausentes con sus valores por defecto (no inventa datos nutricionales:
+   * los valores desconocidos quedan como null / "desconocido").
+   * Sirve para cargar datos de versiones anteriores y futuras migraciones.
+   */
+  function normalizarDatos(entrada) {
+    const d = Util.clonar(entrada);
+    d.versionDatos = C.VERSION_DATOS;
+    d.categorias = Array.isArray(d.categorias) && d.categorias.length ? d.categorias : Util.clonar(C.CATEGORIAS_INICIALES);
+    d.ingredientes = (d.ingredientes || []).map(i => {
+      const base = nuevoIngrediente();
+      const r = Object.assign(base, i);
+      r.hc = Object.assign({ gramos: null, base: 100, estadoPeso: 'crudo' }, i.hc || {});
+      r.fuente = Object.assign({ clase: '', detalle: '' }, i.fuente || {});
+      r.alergenos = Object.assign(alergenosDesconocidos(), i.alergenos || {});
+      return r;
+    });
+    d.recetas = (d.recetas || []).map(r => Object.assign(nuevaReceta(), r, {
+      lineas: (r.lineas || []).map(l => Object.assign(nuevaLinea(), l)) }));
+    d.reglas = (d.reglas || []).map(r => {
+      const base = nuevaRegla();
+      return Object.assign(base, r, { condicion: Object.assign(base.condicion, r.condicion || {}),
+        accion: Object.assign(base.accion, r.accion || {}) });
+    });
+    d.palabrasClave = (d.palabrasClave || []).map(p => Object.assign({ id: Util.generarId('pc'), termino: '', categoriaId: 'otra', tipo: '' }, p));
+    d.terminosUsuario = (d.terminosUsuario || []).map(t => Object.assign({ id: Util.generarId('ter'), termino: '', exclusion: C.ID_GENERAL, accion: 'revisar' }, t));
+    const menu = menuVacio();
+    C.DIAS.forEach(dia => {
+      const m = (d.menuColegio || {})[dia.id] || {};
+      menu[dia.id] = { texto: m.texto || '', componentes: (m.componentes || []).map(c => Object.assign(nuevoComponente(), c)) };
+    });
+    d.menuColegio = menu;
+    const eleccion = eleccionVacia();
+    C.DIAS.forEach(dia => { eleccion[dia.id] = (d.eleccionManual || {})[dia.id] || null; });
+    d.eleccionManual = eleccion;
+    d.revisionAlergenos = Object.assign({ fase1: null, fase2: null }, d.revisionAlergenos || {});
+    return d;
+  }
+
+  function nombreCategoria(datos, categoriaId) {
+    const c = datos.categorias.find(x => x.id === categoriaId);
+    return c ? c.nombre : '(categoría eliminada)';
+  }
+
+  return { nuevoIngrediente, nuevaReceta, nuevaLinea, nuevaRegla, nuevoComponente, crearDatosIniciales,
+           normalizarDatos, nombreCategoria, datosEjemplo };
+})();
+
+/* =========================================================
+   MÓDULO: GESTIÓN DE INGREDIENTES
+   ========================================================= */
+const Ingredientes = (() => {
+  /** Campos cuyo cambio anula la confirmación de "coincidencias revisadas". */
+  const CAMPOS_TEXTO_ALERGENOS = ['nombre', 'composicion', 'trazas', 'alergenosNotas'];
+
+  function buscar(datos, id) { return datos.ingredientes.find(i => i.id === id) || null; }
+  function recetasQueLoUsan(datos, id) { return datos.recetas.filter(r => r.lineas.some(l => l.ingredienteId === id)); }
+
+  /** Crea o actualiza. Devuelve { ok, error }. */
+  function guardar(datos, ingrediente) {
+    // Se valida ANTES de clonar: al clonar con JSON, un NaN se convertiría en null ("sin dato").
+    if (ingrediente.hc.gramos != null && (!Util.esNumero(ingrediente.hc.gramos) || ingrediente.hc.gramos < 0))
+      return { ok: false, error: 'Los gramos de hidratos deben ser un número igual o mayor que 0.' };
+    if (!Util.esNumero(ingrediente.hc.base) || ingrediente.hc.base <= 0)
+      return { ok: false, error: 'La base de referencia debe ser un número mayor que 0 (por ejemplo, 100).' };
+    const ing = Util.clonar(ingrediente);
+    ing.nombre = String(ing.nombre || '').trim();
+    if (!ing.nombre) return { ok: false, error: 'El ingrediente necesita un nombre.' };
+    const indice = datos.ingredientes.findIndex(i => i.id === ing.id);
+    if (indice >= 0) {
+      const anterior = datos.ingredientes[indice];
+      const textoCambiado = CAMPOS_TEXTO_ALERGENOS.some(c => (anterior[c] || '') !== (ing[c] || ''));
+      // Si cambió el texto analizado y la persona no ha vuelto a marcar la casilla, se anula la confirmación.
+      if (textoCambiado && anterior.revisionTerminosConfirmada && ing.revisionTerminosConfirmada) ing.revisionTerminosConfirmada = false;
+      datos.ingredientes[indice] = ing;
+    } else {
+      datos.ingredientes.push(ing);
+    }
+    return { ok: true };
+  }
+
+  /** Solo se puede eliminar si ninguna receta lo usa. */
+  function eliminar(datos, id) {
+    const usos = recetasQueLoUsan(datos, id);
+    if (usos.length) return { ok: false, error: 'No se puede eliminar: lo usan estas recetas: ' + usos.map(r => r.nombre).join(', ') + '.' };
+    datos.ingredientes = datos.ingredientes.filter(i => i.id !== id);
+    return { ok: true };
+  }
+
+  return { buscar, recetasQueLoUsan, guardar, eliminar };
+})();
+
+/* =========================================================
+   MÓDULO: GESTIÓN DE RECETAS
+   ========================================================= */
+const Recetas = (() => {
+  function buscar(datos, id) { return datos.recetas.find(r => r.id === id) || null; }
+
+  function guardar(datos, receta) {
+    const r = Util.clonar(receta);
+    r.nombre = String(r.nombre || '').trim();
+    if (!r.nombre) return { ok: false, error: 'La receta necesita un nombre.' };
+    for (const linea of r.lineas) {
+      if (!linea.ingredienteId) return { ok: false, error: 'Hay una línea sin ingrediente elegido. Elígelo o quita la línea.' };
+      if (!Ingredientes.buscar(datos, linea.ingredienteId)) return { ok: false, error: 'Una línea usa un ingrediente que ya no existe.' };
+      if (linea.gramos != null && (!Util.esNumero(linea.gramos) || linea.gramos < 0))
+        return { ok: false, error: 'Las cantidades deben ser números iguales o mayores que 0.' };
+    }
+    const indice = datos.recetas.findIndex(x => x.id === r.id);
+    if (indice >= 0) datos.recetas[indice] = r; else datos.recetas.push(r);
+    return { ok: true };
+  }
+
+  function duplicar(datos, id) {
+    const original = buscar(datos, id);
+    if (!original) return { ok: false, error: 'Receta no encontrada.' };
+    const copia = Util.clonar(original);
+    copia.id = Util.generarId('rec');
+    copia.nombre = original.nombre + ' (copia)';
+    copia.ejemplo = false;
+    datos.recetas.push(copia);
+    return { ok: true, id: copia.id };
+  }
+
+  /** Elimina la receta y la quita de las elecciones manuales de la semana. */
+  function eliminar(datos, id) {
+    datos.recetas = datos.recetas.filter(r => r.id !== id);
+    Object.keys(datos.eleccionManual).forEach(dia => { if (datos.eleccionManual[dia] === id) datos.eleccionManual[dia] = null; });
+    return { ok: true };
+  }
+
+  function diasConEleccion(datos, id) {
+    return Constantes.DIAS.filter(d => datos.eleccionManual[d.id] === id).map(d => d.nombre);
+  }
+
+  /** Ingredientes (fichas) usados por una receta; las líneas con ingrediente inexistente se omiten. */
+  function ingredientesDe(datos, receta) {
+    return receta.lineas.map(l => Ingredientes.buscar(datos, l.ingredienteId)).filter(Boolean);
+  }
+
+  return { buscar, guardar, duplicar, eliminar, diasConEleccion, ingredientesDe };
+})();
+
+/* =========================================================
+   MÓDULO: GESTIÓN DE MENÚS ESCOLARES
+   Las clasificaciones por palabras clave son SOLO sugerencias:
+   nacen sin confirmar y el motor de reglas no las usa hasta
+   que la persona las confirma.
+   ========================================================= */
+const MenuEscolar = (() => {
+  /**
+   * Sugiere componentes a partir del texto del menú y el diccionario de palabras clave.
+   * No sugiere nada para palabras que coinciden con una exclusión (p. ej. "judías verdes" nunca será "verdura").
+   */
+  function sugerirComponentes(datos, diaId) {
+    const menu = datos.menuColegio[diaId];
+    const textoNorm = Util.normalizarTexto(menu.texto);
+    const terminosBloqueo = Alergenos.terminosActivos(datos).filter(t => t.accion === 'bloquear');
+    const nuevos = [];
+    datos.palabrasClave.forEach(pc => {
+      const terminoNorm = Util.normalizarTexto(pc.termino);
+      if (!Util.buscarTermino(textoNorm, terminoNorm).length) return;
+      if (terminosBloqueo.some(t => Util.buscarTermino(terminoNorm, t.norm).length)) return; // la palabra es una exclusión
+      const tipoNorm = Util.normalizarTexto(pc.tipo);
+      const yaExiste = menu.componentes.concat(nuevos).some(c => c.categoriaId === pc.categoriaId &&
+        (tipoNorm ? Util.normalizarTexto(c.tipo) === tipoNorm : Util.normalizarTexto(c.texto) === terminoNorm));
+      if (!yaExiste) nuevos.push(Datos.nuevoComponente(pc.termino, pc.categoriaId, pc.tipo, 'sugerido'));
+    });
+    menu.componentes.push(...nuevos);
+    return nuevos.length;
+  }
+
+  function componentesConfirmados(menu) { return menu.componentes.filter(c => c.confirmado); }
+
+  /** Vacía el menú, las elecciones manuales y las confirmaciones de revisión (nueva semana). */
+  function vaciarSemana(datos) {
+    Constantes.DIAS.forEach(d => { datos.menuColegio[d.id] = { texto: '', componentes: [] }; datos.eleccionManual[d.id] = null; });
+    datos.revisionAlergenos = { fase1: null, fase2: null };
+  }
+
+  return { sugerirComponentes, componentesConfirmados, vaciarSemana };
+})();
+
+/* =========================================================
+   MÓDULO: COMPROBACIÓN DE ALÉRGENOS
+   Política conservadora: ante la duda, revisar. Las exclusiones
+   absolutas prevalecen sobre cualquier otra regla o confirmación.
+   ========================================================= */
+const Alergenos = (() => {
+  const C = Constantes;
+
+  function nombreExclusion(id) {
+    if (id === C.ID_GENERAL) return 'Revisión general';
+    const e = C.EXCLUSIONES.find(x => x.id === id);
+    return e ? e.nombre : id;
+  }
+
+  /** Términos base + términos añadidos por la persona, con su forma normalizada. */
+  function terminosActivos(datos) {
+    return C.TERMINOS_BASE.map(t => ({ ...t, origen: 'base', norm: Util.normalizarTexto(t.termino) }))
+      .concat((datos.terminosUsuario || []).map(t => ({ ...t, origen: 'usuario', norm: Util.normalizarTexto(t.termino) })))
+      .filter(t => t.norm);
+  }
+
+  /** Busca todos los términos en un texto. Devuelve [{ termino, exclusion, accion, negado }]. */
+  function buscarCoincidencias(texto, terminos) {
+    const textoNorm = Util.normalizarTexto(texto);
+    const encontrados = [];
+    terminos.forEach(t => {
+      const posiciones = Util.buscarTermino(textoNorm, t.norm);
+      if (!posiciones.length) return;
+      const negado = posiciones.every(p => Util.precedidoDeNegacion(textoNorm, p));
+      encontrados.push({ termino: t.termino, exclusion: t.exclusion, accion: t.accion, negado });
+    });
+    return encontrados;
+  }
+
+  /**
+   * Analiza una ficha de ingrediente.
+   * Devuelve { estado: 'bloqueada'|'revisar'|'sin_coincidencias', motivos: [{ nivel, texto, resuelto }] }
+   *  - nivel 'bloqueo': exclusión detectada (nunca se puede saltar).
+   *  - nivel 'revision': falta información o hay un posible derivado.
+   */
+  function comprobarIngrediente(ing, terminos) {
+    const motivos = [];
+    // 1) Datos estructurados por exclusión
+    C.EXCLUSIONES.forEach(ex => {
+      const valor = (ing.alergenos || {})[ex.id] || 'desconocido';
+      if (valor === 'contiene') motivos.push({ nivel: 'bloqueo', texto: `Marcado como «contiene ${ex.nombre.toLowerCase()}».` });
+      else if (valor === 'trazas') motivos.push({ nivel: 'bloqueo', texto: `Marcado como «puede contener trazas de ${ex.nombre.toLowerCase()}».` });
+      else if (valor !== 'no_contiene') motivos.push({ nivel: 'revision', texto: `No se ha indicado si contiene ${ex.nombre.toLowerCase()}.` });
+    });
+    // 2) Composición de productos procesados
+    if (ing.procesado && (!String(ing.composicion || '').trim() || !ing.composicionCompleta))
+      motivos.push({ nivel: 'revision', texto: 'Producto procesado sin composición completa.' });
+    // 3) Búsqueda de términos y derivados en los textos de la ficha
+    const campos = [['nombre', 'nombre'], ['composicion', 'composición'], ['trazas', 'trazas'], ['alergenosNotas', 'notas de alérgenos']];
+    campos.forEach(([campo, etiqueta]) => {
+      buscarCoincidencias(ing[campo], terminos).forEach(co => {
+        const donde = `«${co.termino}» en ${etiqueta} (${nombreExclusion(co.exclusion)})`;
+        if (co.accion === 'bloquear' && !co.negado) motivos.push({ nivel: 'bloqueo', texto: `Coincidencia con exclusión: ${donde}.` });
+        else if (co.accion === 'bloquear' && co.negado)
+          motivos.push({ nivel: 'revision', resoluble: true, texto: `Aparece precedido de «sin/no contiene»: ${donde}. Compruébalo en la etiqueta.` });
+        else motivos.push({ nivel: 'revision', resoluble: true, texto: `Posible derivado o ingrediente oculto: ${donde}.` });
+      });
+    });
+    // La confirmación de la persona solo resuelve avisos "resolubles" (nunca bloqueos ni datos sin indicar).
+    motivos.forEach(m => { m.resuelto = !!(m.resoluble && ing.revisionTerminosConfirmada); });
+    return { estado: estadoDesdeMotivos(motivos), motivos };
+  }
+
+  function estadoDesdeMotivos(motivos) {
+    if (motivos.some(m => m.nivel === 'bloqueo')) return 'bloqueada';
+    if (motivos.some(m => m.nivel === 'revision' && !m.resuelto)) return 'revisar';
+    return 'sin_coincidencias';
+  }
+
+  /**
+   * Analiza una receta: cada ingrediente + el nombre de la receta (solo términos de exclusión no negados).
+   * Devuelve { estado, motivos: [{ nivel, texto, resuelto, ingrediente }] }
+   */
+  function comprobarReceta(receta, datos, terminos) {
+    terminos = terminos || terminosActivos(datos);
+    const motivos = [];
+    if (!receta.lineas.length) motivos.push({ nivel: 'revision', texto: 'La receta no tiene ingredientes.' });
+    buscarCoincidencias(receta.nombre, terminos).forEach(co => {
+      if (co.accion === 'bloquear' && !co.negado)
+        motivos.push({ nivel: 'bloqueo', texto: `El nombre de la receta contiene «${co.termino}» (${nombreExclusion(co.exclusion)}).` });
+    });
+    const vistos = new Set();
+    receta.lineas.forEach(linea => {
+      const ing = Ingredientes.buscar(datos, linea.ingredienteId);
+      if (!ing) { motivos.push({ nivel: 'revision', texto: 'Una línea usa un ingrediente que ya no existe.' }); return; }
+      if (vistos.has(ing.id)) return;
+      vistos.add(ing.id);
+      comprobarIngrediente(ing, terminos).motivos.forEach(m => motivos.push({ ...m, ingrediente: ing.nombre }));
+    });
+    return { estado: estadoDesdeMotivos(motivos), motivos };
+  }
+
+  /** Avisos para el menú del colegio: términos de exclusión no negados presentes en el texto o componentes. */
+  function comprobarTextoMenu(menu, terminos) {
+    const texto = [menu.texto].concat(menu.componentes.map(c => c.texto)).join(' \n ');
+    return buscarCoincidencias(texto, terminos).filter(co => co.accion === 'bloquear' && !co.negado);
+  }
+
+  function agregarTermino(datos, termino, exclusion, accion) {
+    const limpio = String(termino || '').trim();
+    if (!Util.normalizarTexto(limpio)) return { ok: false, error: 'Escribe un término.' };
+    const norm = Util.normalizarTexto(limpio);
+    if (terminosActivos(datos).some(t => t.norm === norm && t.exclusion === exclusion))
+      return { ok: false, error: 'Ese término ya está en la lista para esa exclusión.' };
+    if (exclusion !== C.ID_GENERAL && !C.EXCLUSIONES.some(e => e.id === exclusion)) return { ok: false, error: 'Exclusión no válida.' };
+    if (!['bloquear', 'revisar'].includes(accion)) return { ok: false, error: 'Acción no válida.' };
+    datos.terminosUsuario.push({ id: Util.generarId('ter'), termino: limpio, exclusion, accion });
+    return { ok: true };
+  }
+  function eliminarTermino(datos, id) {
+    // Los términos base no están en datos.terminosUsuario, así que no pueden eliminarse.
+    datos.terminosUsuario = datos.terminosUsuario.filter(t => t.id !== id);
+    return { ok: true };
+  }
+
+  return { nombreExclusion, terminosActivos, buscarCoincidencias, comprobarIngrediente, comprobarReceta,
+           comprobarTextoMenu, agregarTermino, eliminarTermino };
+})();
+
+/* =========================================================
+   MÓDULO: CÁLCULOS DE HIDRATOS
+   Solo suma valores introducidos por la persona. No estima,
+   no convierte crudo/cocido y no ajusta cantidades.
+   ========================================================= */
+const Hidratos = (() => {
+  /** Estado del dato de hidratos de una ficha: 'completo' | 'pendiente' | 'incompleto' + motivos. */
+  function estadoDatoIngrediente(ing) {
+    const motivos = [];
+    let estado = 'completo';
+    if (!Util.esNumero(ing.hc.gramos)) { motivos.push('Falta el dato de hidratos.'); estado = 'incompleto'; }
+    if (!Util.esNumero(ing.hc.base) || ing.hc.base <= 0) { motivos.push('Falta la base de referencia.'); estado = 'incompleto'; }
+    const fuenteValida = ing.fuente.clase && (ing.fuente.clase !== 'otra' || String(ing.fuente.detalle || '').trim());
+    if (!fuenteValida) { motivos.push('Fuente del dato sin identificar.'); if (estado === 'completo') estado = 'pendiente'; }
+    if (!ing.verificado) { motivos.push('Dato sin verificar.'); if (estado === 'completo') estado = 'pendiente'; }
+    return { estado, motivos };
+  }
+
+  /**
+   * Calcula una línea de receta: gramos × (g HC de la ficha ÷ base).
+   * Si el estado del peso de la receta no coincide con el del dato, NO se calcula (no se convierte).
+   */
+  function calcularLinea(linea, ing) {
+    const r = { ingrediente: ing, gramos: linea.gramos, hc: null, estado: 'completo', motivos: [], estadoPesoLinea: linea.estadoPeso };
+    if (!ing) { r.estado = 'incompleto'; r.motivos.push('Ingrediente inexistente.'); return r; }
+    const dato = estadoDatoIngrediente(ing);
+    r.estado = dato.estado; r.motivos.push(...dato.motivos);
+    if (!Util.esNumero(linea.gramos) || linea.gramos <= 0) { r.estado = 'incompleto'; r.motivos.push('Cantidad desconocida.'); }
+    const pesoCoincide = linea.estadoPeso === ing.hc.estadoPeso;
+    if (!pesoCoincide) {
+      if (r.estado === 'completo') r.estado = 'pendiente';
+      r.motivos.push(`Peso en la receta: ${Constantes.ESTADOS_PESO[linea.estadoPeso] || '?'}; dato de la ficha: ${Constantes.ESTADOS_PESO[ing.hc.estadoPeso] || '?'}. No se calcula.`);
+    }
+    if (pesoCoincide && Util.esNumero(linea.gramos) && linea.gramos > 0 && Util.esNumero(ing.hc.gramos) && Util.esNumero(ing.hc.base) && ing.hc.base > 0)
+      r.hc = linea.gramos * ing.hc.gramos / ing.hc.base;
+    return r;
+  }
+
+  /** Devuelve { total, estado, lineas, motivos }. total = suma de las líneas calculables. */
+  function calcularReceta(receta, datos) {
+    const lineas = receta.lineas.map(l => calcularLinea(l, Ingredientes.buscar(datos, l.ingredienteId)));
+    let estado = 'completo';
+    if (!lineas.length) estado = 'incompleto';
+    if (lineas.some(l => l.estado === 'incompleto')) estado = 'incompleto';
+    else if (lineas.some(l => l.estado === 'pendiente') && estado === 'completo') estado = 'pendiente';
+    const total = lineas.reduce((suma, l) => suma + (Util.esNumero(l.hc) ? l.hc : 0), 0);
+    const motivos = [];
+    if (!lineas.length) motivos.push('La receta no tiene ingredientes.');
+    lineas.forEach(l => { if (l.estado !== 'completo') motivos.push(`${l.ingrediente ? l.ingrediente.nombre : '?'}: ${l.motivos.join(' ')}`); });
+    return { total: Util.redondear1(total), estado, lineas, motivos };
+  }
+
+  return { estadoDatoIngrediente, calcularLinea, calcularReceta };
+})();
+
+/* =========================================================
+   MÓDULO: MOTOR DE REGLAS
+   Determinista: mismas entradas → misma salida. Solo aplica
+   reglas configuradas y activas. Ver Planificador para el orden.
+   ========================================================= */
+const Reglas = (() => {
+  function coincideComponente(comp, categoriaId, tipo) {
+    return comp.categoriaId === categoriaId && (!Util.normalizarTexto(tipo) || Util.normalizarTexto(comp.tipo) === Util.normalizarTexto(tipo));
+  }
+  function textoCategoria(datos, categoriaId, tipo) {
+    return Datos.nombreCategoria(datos, categoriaId).toLowerCase() + (String(tipo || '').trim() ? ` (${tipo})` : '');
+  }
+
+  /** Frase legible de la regla. */
+  function describir(regla, datos) {
+    const c = regla.condicion, a = regla.accion;
+    const cond = `Si la comida ${c.comida === 'incluye' ? 'incluye' : 'NO incluye'} ${textoCategoria(datos, c.categoriaId, c.tipo)}`;
+    let acc;
+    if (a.cena === 'incluir') acc = `la cena debe incluir ${textoCategoria(datos, a.categoriaId, a.tipo)}`;
+    else if (a.cena === 'evitar') acc = `la cena debe evitar ${textoCategoria(datos, a.categoriaId, a.tipo)}`;
+    else acc = `la cena no debe repetir el mismo tipo de ${Datos.nombreCategoria(datos, a.categoriaId).toLowerCase()} que la comida`;
+    return `${cond} → ${acc}.`;
+  }
+
+  /** ¿Se activa la regla con los componentes confirmados de la comida? */
+  function condicionCumple(regla, componentes) {
+    const tiene = componentes.some(comp => coincideComponente(comp, regla.condicion.categoriaId, regla.condicion.tipo));
+    return regla.condicion.comida === 'incluye' ? tiene : !tiene;
+  }
+
+  /** Evalúa la acción de la regla sobre una receta. Devuelve { resultado: 'cumple'|'no_cumple'|'indeterminado', detalle }. */
+  function evaluarAccion(regla, receta, componentes, datos) {
+    const a = regla.accion;
+    const ings = Recetas.ingredientesDe(datos, receta);
+    const delaCategoria = ings.filter(i => coincideComponente(i, a.categoriaId, a.cena === 'evitar_mismo_tipo' ? '' : a.tipo));
+    const cat = textoCategoria(datos, a.categoriaId, a.cena === 'evitar_mismo_tipo' ? '' : a.tipo);
+    if (a.cena === 'incluir') {
+      return delaCategoria.length
+        ? { resultado: 'cumple', detalle: `Incluye ${cat}: ${delaCategoria.map(i => i.nombre).join(', ')}.` }
+        : { resultado: 'no_cumple', detalle: `No incluye ${cat}.` };
+    }
+    if (a.cena === 'evitar') {
+      return delaCategoria.length
+        ? { resultado: 'no_cumple', detalle: `Incluye ${cat}: ${delaCategoria.map(i => i.nombre).join(', ')}.` }
+        : { resultado: 'cumple', detalle: `No incluye ${cat}.` };
+    }
+    // evitar_mismo_tipo
+    const compsCat = componentes.filter(c => c.categoriaId === a.categoriaId);
+    if (!delaCategoria.length) return { resultado: 'cumple', detalle: `La cena no lleva ${cat}.` };
+    if (!compsCat.length) return { resultado: 'cumple', detalle: `La comida no llevó ${cat}.` };
+    const sinTipoCena = delaCategoria.filter(i => !Util.normalizarTexto(i.tipo));
+    const sinTipoComida = compsCat.filter(c => !Util.normalizarTexto(c.tipo));
+    if (sinTipoCena.length) return { resultado: 'indeterminado', detalle: `Falta el «tipo» en la ficha de: ${sinTipoCena.map(i => i.nombre).join(', ')}.` };
+    if (sinTipoComida.length) return { resultado: 'indeterminado', detalle: `Falta el «tipo» en el componente de la comida: ${sinTipoComida.map(c => c.texto).join(', ')}.` };
+    const tiposComida = new Set(compsCat.map(c => Util.normalizarTexto(c.tipo)));
+    const repetidos = delaCategoria.filter(i => tiposComida.has(Util.normalizarTexto(i.tipo)));
+    return repetidos.length
+      ? { resultado: 'no_cumple', detalle: `Repite tipo: ${repetidos.map(i => `${i.nombre} (${i.tipo})`).join(', ')}.` }
+      : { resultado: 'cumple', detalle: `Tipo distinto al de la comida (${delaCategoria.map(i => i.tipo).join(', ')}).` };
+  }
+
+  /** Detecta reglas aplicables con acciones contrarias (incluir X frente a evitar X). */
+  function detectarConflictos(reglas) {
+    const conflictos = [];
+    for (let i = 0; i < reglas.length; i++) {
+      for (let j = i + 1; j < reglas.length; j++) {
+        const a = reglas[i], b = reglas[j];
+        const acciones = [a.accion.cena, b.accion.cena];
+        if (!(acciones.includes('incluir') && acciones.includes('evitar'))) continue;
+        if (a.accion.categoriaId !== b.accion.categoriaId) continue;
+        const ta = Util.normalizarTexto(a.accion.tipo), tb = Util.normalizarTexto(b.accion.tipo);
+        if (ta && tb && ta !== tb) continue;
+        conflictos.push({ a, b, mismaPrioridad: a.prioridad === b.prioridad });
+      }
+    }
+    return conflictos;
+  }
+
+  /** Valida una regla antes de guardarla. */
+  function validar(regla, datos) {
+    if (!String(regla.nombre || '').trim()) return 'La regla necesita un nombre.';
+    if (!Number.isInteger(regla.prioridad) || regla.prioridad < 1) return 'La prioridad debe ser un número entero desde 1 (1 = la más importante).';
+    if (!['incluye', 'no_incluye'].includes(regla.condicion.comida)) return 'Condición no válida.';
+    if (!['incluir', 'evitar', 'evitar_mismo_tipo'].includes(regla.accion.cena)) return 'Acción no válida.';
+    const ids = datos.categorias.map(c => c.id);
+    if (!ids.includes(regla.condicion.categoriaId) || !ids.includes(regla.accion.categoriaId)) return 'Categoría no válida.';
+    return null;
+  }
+  function guardar(datos, regla) {
+    const r = Util.clonar(regla);
+    r.nombre = String(r.nombre || '').trim();
+    const error = validar(r, datos);
+    if (error) return { ok: false, error };
+    const i = datos.reglas.findIndex(x => x.id === r.id);
+    if (i >= 0) datos.reglas[i] = r; else datos.reglas.push(r);
+    return { ok: true };
+  }
+  function eliminar(datos, id) { datos.reglas = datos.reglas.filter(r => r.id !== id); return { ok: true }; }
+
+  return { describir, condicionCumple, evaluarAccion, detectarConflictos, validar, guardar, eliminar };
+})();
+
+/* =========================================================
+   MÓDULO: PLANIFICADOR (usa el motor de reglas)
+   Orden para cada día:
+     1. Datos del menú (componentes confirmados).
+     2. Filtro absoluto de alérgenos (bloqueadas fuera).
+     3. Reglas activas aplicables.
+     4. Ranking por prioridad (lexicográfico) + desempates fijos.
+     5. Estado del día y explicación.
+   ========================================================= */
+const Planificador = (() => {
+  const C = Constantes;
+  const ORDEN_ALERGIA = { sin_coincidencias: 0, revisar: 1, bloqueada: 2 };
+  const ORDEN_HC = { completo: 0, pendiente: 1, incompleto: 2 };
+
+  /** Precalcula alérgenos e hidratos de todas las recetas (una vez por planificación). */
+  function crearContexto(datos) {
+    const terminos = Alergenos.terminosActivos(datos);
+    const analisis = {};
+    datos.recetas.forEach(r => {
+      analisis[r.id] = { alergenos: Alergenos.comprobarReceta(r, datos, terminos), hidratos: Hidratos.calcularReceta(r, datos) };
+    });
+    return { terminos, analisis };
+  }
+
+  function evaluarReceta(receta, aplicables, componentes, datos) {
+    return aplicables.map(regla => ({ regla, ...Reglas.evaluarAccion(regla, receta, componentes, datos) }));
+  }
+
+  /** Vector de puntuación: nº de reglas cumplidas en cada nivel de prioridad (de más a menos importante). */
+  function vectorPuntuacion(evaluacion, prioridades) {
+    return prioridades.map(p => evaluacion.filter(e => e.regla.prioridad === p && e.resultado === 'cumple').length);
+  }
+  function compararVectores(va, vb) {
+    for (let i = 0; i < va.length; i++) if (va[i] !== vb[i]) return vb[i] - va[i];
+    return 0;
+  }
+
+  /** Ordena candidatas. Devuelve la lista ordenada y el criterio que decidió entre las dos primeras. */
+  function ordenarCandidatas(candidatas, aplicables, componentes, datos, ctx) {
+    const prioridades = [...new Set(aplicables.map(r => r.prioridad))].sort((a, b) => a - b);
+    const filas = candidatas.map(receta => {
+      const evaluacion = evaluarReceta(receta, aplicables, componentes, datos);
+      return { receta, evaluacion, vector: vectorPuntuacion(evaluacion, prioridades), an: ctx.analisis[receta.id] };
+    });
+    const criterios = [
+      ['reglas', (a, b) => compararVectores(a.vector, b.vector)],
+      ['alergenos', (a, b) => ORDEN_ALERGIA[a.an.alergenos.estado] - ORDEN_ALERGIA[b.an.alergenos.estado]],
+      ['hidratos', (a, b) => ORDEN_HC[a.an.hidratos.estado] - ORDEN_HC[b.an.hidratos.estado]],
+      ['nombre', (a, b) => Util.compararTexto(a.receta.nombre, b.receta.nombre)],
+      ['id', (a, b) => (a.receta.id < b.receta.id ? -1 : a.receta.id > b.receta.id ? 1 : 0)]
+    ];
+    filas.sort((a, b) => { for (const [, f] of criterios) { const r = f(a, b); if (r) return r; } return 0; });
+    let criterio = null;
+    if (filas.length > 1) for (const [nombre, f] of criterios) { if (f(filas[0], filas[1])) { criterio = nombre; break; } }
+    return { filas, criterio };
+  }
+
+  const TEXTO_DESEMPATE = {
+    reglas: null,
+    alergenos: 'empate en las reglas; se prefiere la que no tiene revisión de alérgenos pendiente',
+    hidratos: 'empate en las reglas; se prefiere la que tiene el cálculo de hidratos más documentado',
+    nombre: 'empate en las reglas y en los datos; se elige por orden alfabético',
+    id: 'empate total; se elige por orden de creación'
+  };
+
+  /** Planifica un día. Devuelve toda la información que la interfaz necesita mostrar. */
+  function planificarDia(datos, diaId, ctx) {
+    ctx = ctx || crearContexto(datos);
+    const menu = datos.menuColegio[diaId];
+    const confirmados = MenuEscolar.componentesConfirmados(menu);
+    const sinConfirmar = menu.componentes.filter(c => !c.confirmado);
+    const motivos = [];   // por qué queda pendiente
+    const explicacion = []; // por qué se propone esta cena
+    const avisosMenu = Alergenos.comprobarTextoMenu(menu, ctx.terminos);
+
+    // 1. Información del menú
+    const menuSuficiente = confirmados.length > 0;
+    if (!menu.texto.trim() && !menu.componentes.length) motivos.push('Falta el menú del colegio de este día.');
+    else if (!menuSuficiente) motivos.push('No hay componentes de la comida confirmados.');
+    if (sinConfirmar.length) motivos.push(`Hay ${sinConfirmar.length} componente(s) de la comida sin confirmar.`);
+
+    // 2. Reglas aplicables
+    const activas = datos.reglas.filter(r => r.activa);
+    const aplicables = menuSuficiente
+      ? activas.filter(r => Reglas.condicionCumple(r, confirmados)).sort((a, b) => a.prioridad - b.prioridad || Util.compararTexto(a.nombre, b.nombre))
+      : [];
+    if (menuSuficiente && !aplicables.length) motivos.push(activas.length ? 'Ninguna regla activa se aplica a la comida de este día.' : 'No hay reglas activas.');
+    const conflictos = Reglas.detectarConflictos(aplicables);
+    conflictos.forEach(cf => {
+      if (cf.mismaPrioridad) motivos.push(`Conflicto entre «${cf.a.nombre}» y «${cf.b.nombre}» con la misma prioridad. Cambia la prioridad de una de ellas.`);
+      else {
+        const [gana, pierde] = cf.a.prioridad < cf.b.prioridad ? [cf.a, cf.b] : [cf.b, cf.a];
+        explicacion.push(`«${gana.nombre}» prevalece sobre «${pierde.nombre}» por tener más prioridad.`);
+      }
+    });
+
+    // 3. Filtro de alérgenos (absoluto)
+    const bloqueadas = datos.recetas.filter(r => ctx.analisis[r.id].alergenos.estado === 'bloqueada');
+    const candidatas = datos.recetas.filter(r => ctx.analisis[r.id].alergenos.estado !== 'bloqueada');
+
+    // 4. Elección: manual o automática
+    let receta = null, origen = null, evaluacion = [], estado = null;
+    const idManual = datos.eleccionManual[diaId];
+    const manual = idManual ? Recetas.buscar(datos, idManual) : null;
+    if (manual) {
+      receta = manual; origen = 'manual';
+      explicacion.unshift('Cena elegida manualmente por ti.');
+      if (ctx.analisis[manual.id].alergenos.estado === 'bloqueada') estado = 'bloqueada';
+      evaluacion = evaluarReceta(manual, aplicables, confirmados, datos);
+    } else if (menuSuficiente && candidatas.length) {
+      const { filas, criterio } = ordenarCandidatas(candidatas, aplicables, confirmados, datos, ctx);
+      receta = filas[0].receta; origen = 'auto'; evaluacion = filas[0].evaluacion;
+      const cumplidas = evaluacion.filter(e => e.resultado === 'cumple').length;
+      explicacion.unshift(aplicables.length
+        ? `Propuesta automática: cumple ${cumplidas} de ${aplicables.length} regla(s) aplicables, la mejor opción entre ${candidatas.length} receta(s) disponibles según la prioridad de tus reglas.`
+        : `Propuesta automática sin reglas aplicables (entre ${candidatas.length} receta(s) disponibles).`);
+      if (criterio && TEXTO_DESEMPATE[criterio]) explicacion.push('Desempate: ' + TEXTO_DESEMPATE[criterio] + '.');
+    } else if (menuSuficiente && !candidatas.length) {
+      explicacion.push(datos.recetas.length
+        ? `Todas las recetas (${bloqueadas.length}) están bloqueadas por exclusiones.`
+        : 'El recetario está vacío.');
+    }
+    if (bloqueadas.length && origen !== 'manual') explicacion.push(`${bloqueadas.length} receta(s) descartada(s) por exclusiones de alérgenos.`);
+
+    // 5. Motivos de revisión de la cena elegida
+    let alergenos = null, hidratos = null;
+    if (receta) {
+      alergenos = ctx.analisis[receta.id].alergenos;
+      hidratos = ctx.analisis[receta.id].hidratos;
+      const noCumplidas = evaluacion.filter(e => e.resultado !== 'cumple');
+      if (noCumplidas.length) motivos.push('La cena no cumple o no se puede comprobar: ' + noCumplidas.map(e => `«${e.regla.nombre}»`).join(', ') + '.');
+      if (alergenos.estado === 'revisar') motivos.push('La receta tiene puntos de alérgenos por revisar.');
+      if (hidratos.estado !== 'completo') motivos.push(Constantes.ESTADOS_HC[hidratos.estado].texto + '.');
+      if (receta.ejemplo) motivos.push('Es una receta de ejemplo con datos ficticios.');
+    }
+
+    // Estado final (precedencia: bloqueada > pendiente > sin propuesta > compatible)
+    if (!estado) estado = motivos.length ? 'pendiente' : (!receta ? 'sin_propuesta' : 'compatible');
+    if (estado === 'bloqueada') motivos.unshift(`La receta elegida «${receta.nombre}» está bloqueada por una exclusión. Elige otra cena.`);
+
+    return { diaId, menu, confirmados, sinConfirmar, avisosMenu, aplicables, conflictos, receta, origen, evaluacion,
+             alergenos, hidratos, estado, motivos, explicacion, numCandidatas: candidatas.length, numBloqueadas: bloqueadas.length };
+  }
+
+  /**
+   * Planifica la semana. La "huella" resume las cenas elegidas, sus recetas, sus ingredientes
+   * y los términos: si cambia, la revisión de alérgenos confirmada deja de valer.
+   */
+  function planificarSemana(datos) {
+    const ctx = crearContexto(datos);
+    const dias = C.DIAS.map(d => planificarDia(datos, d.id, ctx));
+    const contenido = dias.map(dia => {
+      if (!dia.receta) return [dia.diaId, null];
+      return [dia.diaId, dia.receta, Recetas.ingredientesDe(datos, dia.receta)];
+    });
+    const huella = Util.huella(JSON.stringify([contenido, datos.terminosUsuario]));
+    return { dias, huella };
+  }
+
+  return { crearContexto, planificarDia, planificarSemana };
+})();
+
+/* =========================================================
+   MÓDULO: REVISIÓN OBLIGATORIA DE ALÉRGENOS (dos fases)
+   ========================================================= */
+const Revision = (() => {
+  const FASES = {
+    fase1: { titulo: 'Primera revisión', puntos: [
+      'He comprobado los ingredientes completos de cada receta de la semana.',
+      'He comprobado la composición de cada ingrediente.',
+      'He revisado las coincidencias con las exclusiones (huevo, pescados y marisco, legumbres, frutos secos y piña).'] },
+    fase2: { titulo: 'Segunda revisión', puntos: [
+      'He revisado las etiquetas de los productos procesados.',
+      'He buscado ingredientes ocultos y derivados.',
+      'He revisado las trazas.',
+      'He considerado posibles contaminaciones cruzadas.'] }
+  };
+
+  /** Estado de cada fase: 'pendiente' | 'confirmada' | 'caducada' (los datos cambiaron tras confirmar). */
+  function estado(datos, huellaActual, dias) {
+    function e(fase) {
+      const r = datos.revisionAlergenos[fase];
+      if (!r) return 'pendiente';
+      return r.huella === huellaActual ? 'confirmada' : 'caducada';
+    }
+    const fase1 = e('fase1'), fase2 = fase1 === 'confirmada' ? e('fase2') : (datos.revisionAlergenos.fase2 ? 'caducada' : 'pendiente');
+    const hayBloqueadas = (dias || []).some(d => d.estado === 'bloqueada');
+    return { fase1, fase2, hayBloqueadas, completada: fase1 === 'confirmada' && fase2 === 'confirmada' && !hayBloqueadas };
+  }
+
+  function confirmar(datos, fase, huellaActual) {
+    if (fase === 'fase2' && estado(datos, huellaActual).fase1 !== 'confirmada')
+      return { ok: false, error: 'Primero confirma la primera revisión.' };
+    datos.revisionAlergenos[fase] = { fecha: new Date().toISOString(), huella: huellaActual };
+    if (fase === 'fase1') datos.revisionAlergenos.fase2 = null; // la segunda fase se rehace tras la primera
+    return { ok: true };
+  }
+
+  function anular(datos) { datos.revisionAlergenos = { fase1: null, fase2: null }; }
+
+  return { FASES, estado, confirmar, anular };
+})();
+
+/* =========================================================
+   MÓDULO: ALMACENAMIENTO (localStorage)
+   Recibe el objeto de almacenamiento como parámetro para poder probarlo.
+   ========================================================= */
+const Almacen = (() => {
+  const C = Constantes;
+
+  function disponible(almacen) {
+    try { const k = '__prueba__'; almacen.setItem(k, '1'); almacen.removeItem(k); return true; } catch (e) { return false; }
+  }
+
+  /** Carga los datos. Si están dañados, guarda una copia aparte y empieza de nuevo avisando. */
+  function cargar(almacen) {
+    let texto = null;
+    try { texto = almacen.getItem(C.CLAVE_ALMACEN); } catch (e) { return { datos: Datos.crearDatosIniciales(), aviso: 'No se puede acceder al almacenamiento del navegador. Los cambios no se guardarán.' }; }
+    if (!texto) return { datos: Datos.crearDatosIniciales(), nuevo: true };
+    try {
+      const obj = JSON.parse(texto);
+      const validacion = CopiaSeguridad.validarDatos(obj);
+      if (!validacion.ok) throw new Error(validacion.errores.join(' '));
+      return { datos: Datos.normalizarDatos(obj) };
+    } catch (e) {
+      try { almacen.setItem(C.CLAVE_RESPALDO_DANADO, texto); } catch (e2) { /* sin espacio: se ignora */ }
+      return { datos: Datos.crearDatosIniciales(), aviso: 'Los datos guardados estaban dañados y no se han podido cargar. Se ha guardado una copia aparte. Puedes restaurar una copia de seguridad desde Ajustes.' };
+    }
+  }
+
+  function guardar(almacen, datos) {
+    try { almacen.setItem(C.CLAVE_ALMACEN, JSON.stringify(datos)); return { ok: true }; }
+    catch (e) { return { ok: false, error: 'No se han podido guardar los cambios (almacenamiento lleno o bloqueado). Exporta una copia de seguridad.' }; }
+  }
+
+  return { disponible, cargar, guardar };
+})();
+
+/* =========================================================
+   MÓDULO: IMPORTACIÓN Y EXPORTACIÓN (copias de seguridad JSON)
+   ========================================================= */
+const CopiaSeguridad = (() => {
+  const C = Constantes;
+  const ID_APP = 'planificador-cenas';
+
+  function crearCopia(datos) {
+    return { app: ID_APP, versionDatos: C.VERSION_DATOS, exportado: new Date().toISOString(), datos: Util.clonar(datos) };
+  }
+  function nombreArchivo(fecha) {
+    const f = fecha || new Date();
+    const dos = n => String(n).padStart(2, '0');
+    return `planificador-cenas-${f.getFullYear()}-${dos(f.getMonth() + 1)}-${dos(f.getDate())}.json`;
+  }
+
+  /** Valida la estructura de los datos. Devuelve { ok, errores[] } con mensajes comprensibles. */
+  function validarDatos(d) {
+    const errores = [];
+    const err = m => { if (errores.length < 12) errores.push(m); };
+    if (!d || typeof d !== 'object' || Array.isArray(d)) return { ok: false, errores: ['El contenido no tiene el formato esperado.'] };
+    const listas = { categorias: 'categorías', ingredientes: 'ingredientes', recetas: 'recetas', reglas: 'reglas',
+      palabrasClave: 'palabras clave', terminosUsuario: 'términos de alérgenos' };
+    for (const [k, nombre] of Object.entries(listas)) if (!Array.isArray(d[k])) err(`Falta la lista de ${nombre}.`);
+    if (errores.length) return { ok: false, errores };
+
+    const esTexto = v => typeof v === 'string';
+    const idsUnicos = (lista, nombre) => {
+      const vistos = new Set();
+      lista.forEach((e, i) => {
+        if (!e || typeof e !== 'object') { err(`Elemento ${i + 1} de ${nombre} no válido.`); return; }
+        if (!esTexto(e.id) || !e.id) err(`Un elemento de ${nombre} no tiene identificador.`);
+        else if (vistos.has(e.id)) err(`Identificador repetido en ${nombre}: ${e.id}.`);
+        vistos.add(e.id);
+      });
+      return vistos;
+    };
+    const idsCat = idsUnicos(d.categorias, 'categorías');
+    d.categorias.forEach(c => { if (c && !esTexto(c.nombre)) err('Hay una categoría sin nombre.'); });
+    const idsIng = idsUnicos(d.ingredientes, 'ingredientes');
+    idsUnicos(d.recetas, 'recetas'); idsUnicos(d.reglas, 'reglas');
+
+    const numONulo = v => v == null || (Util.esNumero(v) && v >= 0);
+    d.ingredientes.forEach(i => {
+      if (!i || typeof i !== 'object') return;
+      const n = `Ingrediente «${i.nombre || i.id}»`;
+      if (!esTexto(i.nombre) || !i.nombre.trim()) err(`${n}: falta el nombre.`);
+      if (!idsCat.has(i.categoriaId)) err(`${n}: la categoría no existe.`);
+      if (!i.hc || typeof i.hc !== 'object') { err(`${n}: faltan los datos de hidratos.`); return; }
+      if (!numONulo(i.hc.gramos)) err(`${n}: el dato de hidratos no es un número válido.`);
+      if (!(Util.esNumero(i.hc.base) && i.hc.base > 0)) err(`${n}: la base de referencia no es válida.`);
+      if (!C.ESTADOS_PESO[i.hc.estadoPeso]) err(`${n}: estado del peso no válido.`);
+      if (i.fuente && i.fuente.clase && !C.FUENTES[i.fuente.clase]) err(`${n}: tipo de fuente no válido.`);
+      if (i.alergenos) Object.entries(i.alergenos).forEach(([k, v]) => {
+        if (!C.EXCLUSIONES.some(e => e.id === k) || !C.ESTADOS_ALERGENO[v]) err(`${n}: información de alérgenos no válida.`);
+      });
+    });
+    d.recetas.forEach(r => {
+      if (!r || typeof r !== 'object') return;
+      const n = `Receta «${r.nombre || r.id}»`;
+      if (!esTexto(r.nombre) || !r.nombre.trim()) err(`${n}: falta el nombre.`);
+      if (!Array.isArray(r.lineas)) { err(`${n}: falta la lista de ingredientes.`); return; }
+      r.lineas.forEach(l => {
+        if (!l || !idsIng.has(l.ingredienteId)) err(`${n}: usa un ingrediente que no existe.`);
+        else {
+          if (!numONulo(l.gramos)) err(`${n}: una cantidad no es válida.`);
+          if (!C.ESTADOS_PESO[l.estadoPeso]) err(`${n}: estado del peso no válido.`);
+        }
+      });
+    });
+    d.reglas.forEach(r => {
+      if (!r || typeof r !== 'object' || !r.condicion || !r.accion) { err('Hay una regla incompleta.'); return; }
+      const e = Reglas.validar(r, d);
+      if (e) err(`Regla «${r.nombre || r.id}»: ${e}`);
+    });
+    d.palabrasClave.forEach(p => { if (!p || !esTexto(p.termino) || !idsCat.has(p.categoriaId)) err('Hay una palabra clave no válida.'); });
+    d.terminosUsuario.forEach(t => {
+      if (!t || !esTexto(t.termino) || !['bloquear', 'revisar'].includes(t.accion) ||
+          !(t.exclusion === C.ID_GENERAL || C.EXCLUSIONES.some(e => e.id === t.exclusion))) err('Hay un término de alérgenos no válido.');
+    });
+    if (d.menuColegio != null && typeof d.menuColegio !== 'object') err('El menú del colegio no es válido.');
+    return { ok: errores.length === 0, errores };
+  }
+
+  /** Valida el contenido de un archivo de copia. Devuelve { ok, errores, datos }. */
+  function leerCopia(texto) {
+    let obj;
+    try { obj = JSON.parse(texto); } catch (e) { return { ok: false, errores: ['El archivo no es un JSON válido (puede estar incompleto o no ser una copia de esta app).'] }; }
+    if (!obj || obj.app !== ID_APP) return { ok: false, errores: ['El archivo no parece una copia de seguridad del Planificador de cenas.'] };
+    if (!Util.esNumero(obj.versionDatos)) return { ok: false, errores: ['La copia no indica su versión.'] };
+    if (obj.versionDatos > C.VERSION_DATOS) return { ok: false, errores: ['La copia se creó con una versión más nueva de la aplicación. Actualiza el archivo HTML.'] };
+    const v = validarDatos(obj.datos);
+    if (!v.ok) return { ok: false, errores: v.errores };
+    return { ok: true, errores: [], datos: Datos.normalizarDatos(obj.datos), exportado: obj.exportado };
+  }
+
+  function resumen(datos) {
+    return `${datos.ingredientes.length} ingredientes, ${datos.recetas.length} recetas, ${datos.reglas.length} reglas`;
+  }
+
+  return { crearCopia, nombreArchivo, validarDatos, leerCopia, resumen };
+})();
+</script>
+
+<!-- =====================================================================
+     INTERFAZ: pantallas, formularios y eventos.
+     ===================================================================== -->
+<script id="interfaz">
+'use strict';
+(() => {
+  const C = Constantes;
+  const $ = sel => document.querySelector(sel);
+  const esc = t => String(t == null ? '' : t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  /* ---------- Estado de la interfaz ---------- */
+  let almacen = null;
+  try { almacen = window.localStorage; } catch (e) { almacen = null; }
+  const almacenOk = almacen && Almacen.disponible(almacen);
+  const carga = almacenOk ? Almacen.cargar(almacen) : { datos: Datos.crearDatosIniciales(), aviso: 'Este navegador no permite guardar datos en este modo. Los cambios se perderán al cerrar.' };
+  let datos = carga.datos;
+  if (almacenOk && carga.nuevo) Almacen.guardar(almacen, datos);
+  let filtroIngredientes = '', filtroRecetas = '';
+  const marcasRevision = { fase1: new Set(), fase2: new Set() }; // casillas marcadas (no se guardan)
+
+  const VISTAS = [
+    ['semana', 'Semana'], ['menu', 'Menú cole'], ['recetas', 'Recetas'], ['ingredientes', 'Ingredientes'],
+    ['reglas', 'Reglas'], ['alergenos', 'Alérgenos'], ['ajustes', 'Ajustes']
+  ];
+  function vistaActual() { const h = location.hash.slice(1); return VISTAS.some(v => v[0] === h) ? h : 'semana'; }
+
+  /** Guarda en localStorage y vuelve a pintar la vista. */
+  function persistir(sinRepintar) {
+    if (almacenOk) {
+      const r = Almacen.guardar(almacen, datos);
+      $('#estado-guardado').textContent = r.ok ? 'Guardado local' : 'Error al guardar';
+      $('#estado-guardado').className = 'etq ' + (r.ok ? 'sin' : 'bloq');
+      if (!r.ok) mensaje(r.error, 6000);
+    }
+    if (!sinRepintar) pintar();
+  }
+
+  let temporizadorMensaje = null;
+  function mensaje(texto, ms) {
+    const m = $('#mensaje'); m.textContent = texto; m.classList.add('visible');
+    clearTimeout(temporizadorMensaje); temporizadorMensaje = setTimeout(() => m.classList.remove('visible'), ms || 2600);
+  }
+
+  /* ---------- Piezas reutilizables ---------- */
+  const etq = (texto, clase) => `<span class="etq ${clase || ''}">${esc(texto)}</span>`;
+  const etqEjemplo = obj => obj && obj.ejemplo ? etq('EJEMPLO FICTICIO', 'ejemplo') : '';
+  const etqEstadoDia = e => { const x = C.ESTADOS_DIA[e]; return `<span class="etq ${x.clase}">${x.icono} ${esc(x.texto)}</span>`; };
+  const etqHc = e => etq(C.ESTADOS_HC[e].texto, C.ESTADOS_HC[e].clase);
+  const etqAlergia = e => etq(C.ESTADOS_ALERGIA_RECETA[e].texto, C.ESTADOS_ALERGIA_RECETA[e].clase);
+  const nombreConEjemplo = o => o.nombre + (o.ejemplo ? ' (ejemplo)' : '');
+  function opciones(mapaOLista, seleccionado) {
+    const pares = Array.isArray(mapaOLista) ? mapaOLista : Object.entries(mapaOLista);
+    return pares.map(([v, t]) => `<option value="${esc(v)}"${v === seleccionado ? ' selected' : ''}>${esc(t)}</option>`).join('');
+  }
+  const opcionesCategorias = sel => opciones(datos.categorias.map(c => [c.id, c.nombre]), sel);
+
+  function listaMotivos(motivos) {
+    if (!motivos.length) return '';
+    return `<ul class="motivos">${motivos.map(m => {
+      const clase = m.nivel === 'bloqueo' ? 'r-no' : (m.resuelto ? 'suave' : 'r-ind');
+      const pref = m.nivel === 'bloqueo' ? '✕ ' : (m.resuelto ? '✓ (revisado) ' : '! ');
+      return `<li class="${clase}">${pref}${m.ingrediente ? '<b>' + esc(m.ingrediente) + ':</b> ' : ''}${esc(m.texto)}</li>`;
+    }).join('')}</ul>`;
+  }
+
+  /** Tabla de hidratos de una receta. */
+  function tablaHidratos(calculo) {
+    if (!calculo.lineas.length) return '<p class="suave">Sin ingredientes.</p>';
+    const filas = calculo.lineas.map(l => {
+      const ing = l.ingrediente;
+      const fuente = ing ? (C.FUENTES[ing.fuente.clase] || 'Sin fuente') + (ing.fuente.detalle ? ' · ' + ing.fuente.detalle : '') : '';
+      return `<tr><td>${esc(ing ? ing.nombre : '(no existe)')}<br><small>${esc(fuente)}</small>
+        ${l.motivos.length ? `<br><small class="r-ind">${esc(l.motivos.join(' '))}</small>` : ''}</td>
+        <td class="num">${Util.formatearNumero(l.gramos)} g<br><small>${esc(C.ESTADOS_PESO[l.estadoPesoLinea] || '')}</small></td>
+        <td class="num">${Util.esNumero(l.hc) ? Util.formatearNumero(l.hc) + ' g' : '—'}</td></tr>`;
+    }).join('');
+    return `<table class="tabla"><thead><tr><th>Ingrediente</th><th class="num">Cantidad</th><th class="num">HC</th></tr></thead>
+      <tbody>${filas}</tbody><tfoot><tr><th colspan="2">Total ${calculo.estado === 'completo' ? '' : '(parcial)'}</th>
+      <th class="num">${Util.formatearNumero(calculo.total)} g</th></tr></tfoot></table>`;
+  }
+  const textoReferenciaHc = () => `Referencia orientativa: ${C.OBJETIVO_HC_ORIENTATIVO} g. No se ajustan cantidades automáticamente.`;
+
+  /* =======================================================
+     PANTALLA: RESUMEN SEMANAL
+     ======================================================= */
+  function vistaSemana() {
+    const plan = Planificador.planificarSemana(datos);
+    const rev = Revision.estado(datos, plan.huella, plan.dias);
+    let aviso;
+    if (rev.completada) aviso = `<div class="aviso ok">✓ Has confirmado las dos fases de la revisión de alérgenos de esta semana. La app no ha detectado coincidencias en los datos introducidos; la revisión final es tuya.</div>`;
+    else if (rev.hayBloqueadas) aviso = `<div class="aviso bloq">✕ Hay cenas bloqueadas por exclusiones. Cámbialas antes de dar la semana por válida.</div>`;
+    else aviso = `<div class="aviso pend">! Planificación sin validar: falta la <a href="#alergenos">revisión de alérgenos</a> (${rev.fase1 === 'caducada' || rev.fase2 === 'caducada' ? 'los datos cambiaron tras confirmarla' : 'dos fases'}).</div>`;
+
+    const recuento = {};
+    plan.dias.forEach(d => { recuento[d.estado] = (recuento[d.estado] || 0) + 1; });
+    const leyenda = Object.keys(C.ESTADOS_DIA).filter(k => recuento[k]).map(k => `${etqEstadoDia(k)} ×${recuento[k]}`).join(' ');
+
+    return `<h2>Resumen semanal</h2>${aviso}<div class="fila" style="margin-bottom:12px">${leyenda}</div>
+      ${plan.dias.map(tarjetaDia).join('')}`;
+  }
+
+  function tarjetaDia(dia) {
+    const nombreDia = C.DIAS.find(d => d.id === dia.diaId).nombre;
+    const menu = dia.menu;
+    const chips = menu.componentes.map(c =>
+      `<span class="chip ${c.confirmado ? '' : 'sin-confirmar'}" title="${c.confirmado ? 'Confirmado' : 'Sin confirmar'}">${c.confirmado ? '' : '? '}${esc(c.texto)} · ${esc(Datos.nombreCategoria(datos, c.categoriaId))}${c.tipo ? ' (' + esc(c.tipo) + ')' : ''}</span>`).join('');
+    const avisoMenu = dia.avisosMenu.length
+      ? `<div class="aviso bloq" style="margin:6px 0 0">El menú del colegio menciona: ${dia.avisosMenu.map(a => `«${esc(a.termino)}» (${esc(Alergenos.nombreExclusion(a.exclusion))})`).join(', ')}.</div>` : '';
+
+    const recetasElegibles = datos.recetas.filter(r => Alergenos.comprobarReceta(r, datos).estado !== 'bloqueada')
+      .sort((a, b) => Util.compararTexto(a.nombre, b.nombre));
+    const sel = datos.eleccionManual[dia.diaId] || '';
+    const selector = `<label style="margin:8px 0 0">Cambiar cena
+      <select data-accion="elegir-cena" data-dia="${dia.diaId}">
+        <option value="">Automática (según tus reglas)</option>
+        ${recetasElegibles.map(r => `<option value="${esc(r.id)}"${r.id === sel ? ' selected' : ''}>${esc(nombreConEjemplo(r))}</option>`).join('')}
+        ${sel && !recetasElegibles.some(r => r.id === sel) ? `<option value="${esc(sel)}" selected disabled>(receta bloqueada)</option>` : ''}
+      </select></label>`;
+
+    let cena;
+    if (dia.receta) {
+      const ings = dia.receta.lineas.map(l => {
+        const i = Ingredientes.buscar(datos, l.ingredienteId);
+        return `${esc(i ? i.nombre : '?')} ${Util.formatearNumero(l.gramos)} g`;
+      }).join(' · ');
+      cena = `<div class="cena-nombre">${esc(dia.receta.nombre)} ${etqEjemplo(dia.receta)}</div>
+        <div class="suave" style="font-size:.9rem">${ings || 'Sin ingredientes'}</div>
+        <div class="fila" style="margin-top:6px"><span class="hc">${Util.formatearNumero(dia.hidratos.total)} g HC${dia.hidratos.estado === 'completo' ? '' : ' (parcial)'}</span>
+        ${etqHc(dia.hidratos.estado)} ${etqAlergia(dia.alergenos.estado)}</div>
+        <small class="suave">${textoReferenciaHc()}</small>`;
+    } else {
+      cena = `<div class="suave">Sin cena propuesta.</div>`;
+    }
+
+    const reglasTxt = dia.evaluacion.length
+      ? `<ul class="motivos">${dia.evaluacion.map(e => {
+          const [cl, ic] = e.resultado === 'cumple' ? ['r-cumple', '✓'] : e.resultado === 'no_cumple' ? ['r-no', '✕'] : ['r-ind', '?'];
+          return `<li class="${cl}">${ic} <b>${esc(e.regla.nombre)}</b> (prioridad ${e.regla.prioridad}): ${esc(e.detalle)}</li>`;
+        }).join('')}</ul>`
+      : '<p class="suave">Ninguna regla aplicada.</p>';
+
+    const porque = `<details><summary>¿Por qué esta propuesta?</summary>
+      <div class="rotulo" style="margin-top:6px">Motivo</div>
+      <ul class="motivos">${dia.explicacion.map(t => `<li>${esc(t)}</li>`).join('') || '<li>—</li>'}</ul>
+      <div class="rotulo" style="margin-top:6px">Reglas aplicadas</div>${reglasTxt}
+      ${dia.motivos.length ? `<div class="rotulo" style="margin-top:6px">Pendiente de revisar</div><ul class="motivos">${dia.motivos.map(t => `<li class="r-ind">${esc(t)}</li>`).join('')}</ul>` : ''}
+      ${dia.alergenos && dia.alergenos.motivos.length ? `<div class="rotulo" style="margin-top:6px">Alérgenos</div>${listaMotivos(dia.alergenos.motivos)}` : ''}
+    </details>`;
+
+    return `<article class="tarjeta dia ${dia.estado}">
+      <div class="fila entre"><h3>${nombreDia}</h3>${etqEstadoDia(dia.estado)}</div>
+      <div class="bloque"><div class="rotulo">Comida en el colegio</div>
+        <div>${menu.texto.trim() ? esc(menu.texto) : '<span class="suave">Sin menú. <a href="#menu">Añadir</a></span>'}</div>
+        <div>${chips}</div>${avisoMenu}</div>
+      <div class="bloque"><div class="rotulo">Cena ${dia.origen === 'manual' ? '(elegida por ti)' : dia.origen === 'auto' ? '(propuesta)' : ''}</div>${cena}${selector}</div>
+      ${porque}
+    </article>`;
+  }
+
+  /* =======================================================
+     PANTALLA: MENÚ DEL COLEGIO
+     ======================================================= */
+  function vistaMenu() {
+    const dias = C.DIAS.map(d => {
+      const m = datos.menuColegio[d.id];
+      const comps = m.componentes.map(c => `<div class="componente">
+          <label class="ancho">Componente<input data-accion="comp-campo" data-dia="${d.id}" data-comp="${c.id}" data-campo="texto" value="${esc(c.texto)}"></label>
+          <label>Categoría<select data-accion="comp-campo" data-dia="${d.id}" data-comp="${c.id}" data-campo="categoriaId">${opcionesCategorias(c.categoriaId)}</select></label>
+          <label>Tipo (opcional)<input data-accion="comp-campo" data-dia="${d.id}" data-comp="${c.id}" data-campo="tipo" value="${esc(c.tipo)}" placeholder="arroz, pasta..."></label>
+          <label class="check ancho"><input type="checkbox" data-accion="comp-campo" data-dia="${d.id}" data-comp="${c.id}" data-campo="confirmado" ${c.confirmado ? 'checked' : ''}>
+            Confirmado ${c.origen === 'sugerido' && !c.confirmado ? '<span class="etq pend">sugerencia sin confirmar</span>' : ''}</label>
+          <div class="ancho"><button class="pequeno peligro" data-accion="comp-borrar" data-dia="${d.id}" data-comp="${c.id}">Quitar</button></div>
+        </div>`).join('');
+      return `<section class="tarjeta">
+        <h3>${d.nombre}</h3>
+        <label>Menú (escribe o pega el texto)<textarea data-accion="menu-texto" data-dia="${d.id}" placeholder="Ej.: Macarrones con tomate, pollo asado con ensalada, fruta">${esc(m.texto)}</textarea></label>
+        <div class="acciones" style="margin-top:0"><button class="pequeno" data-accion="sugerir" data-dia="${d.id}">Sugerir componentes</button>
+          <button class="pequeno" data-accion="comp-nuevo" data-dia="${d.id}">+ Componente</button></div>
+        ${comps ? `<div style="margin-top:10px">${comps}</div>` : ''}
+      </section>`;
+    }).join('');
+
+    const palabras = datos.palabrasClave.slice().sort((a, b) => Util.compararTexto(a.termino, b.termino)).map(p =>
+      `<li class="fila entre"><span>${esc(p.termino)} → <b>${esc(Datos.nombreCategoria(datos, p.categoriaId))}</b>${p.tipo ? ' (' + esc(p.tipo) + ')' : ''}</span>
+        <button class="pequeno peligro" data-accion="pc-borrar" data-id="${p.id}">Quitar</button></li>`).join('');
+
+    return `<h2>Menú del colegio</h2>
+      <div class="aviso info">Las clasificaciones sugeridas son solo propuestas. El planificador solo usa los componentes que marques como <b>confirmados</b>.</div>
+      ${dias}
+      <div class="acciones"><button class="peligro" data-accion="vaciar-semana">Vaciar menú de la semana</button></div>
+      <details class="tarjeta"><summary>Palabras clave para sugerencias (${datos.palabrasClave.length})</summary>
+        <p class="suave">Si el texto del menú contiene la palabra, se sugiere el componente. Las palabras que coinciden con una exclusión (p. ej. judías verdes) nunca se sugieren.</p>
+        <div class="rejilla3"><label>Palabra<input id="pc-termino"></label><label>Categoría<select id="pc-categoria">${opcionesCategorias('hidrato')}</select></label>
+          <label>Tipo<input id="pc-tipo" placeholder="opcional"></label></div>
+        <button class="pequeno primario" data-accion="pc-nueva">Añadir palabra</button>
+        <ul class="lista" style="margin-top:10px">${palabras}</ul>
+      </details>`;
+  }
+
+  /* =======================================================
+     PANTALLA: RECETARIO
+     ======================================================= */
+  function vistaRecetas() {
+    const ctx = Planificador.crearContexto(datos);
+    const f = Util.normalizarTexto(filtroRecetas);
+    const lista = datos.recetas.filter(r => !f || Util.normalizarTexto(r.nombre).includes(f))
+      .sort((a, b) => Util.compararTexto(a.nombre, b.nombre));
+    const tarjetas = lista.map(r => {
+      const an = ctx.analisis[r.id];
+      const cats = [...new Set(Recetas.ingredientesDe(datos, r).map(i => Datos.nombreCategoria(datos, i.categoriaId)))];
+      return `<article class="tarjeta">
+        <div class="fila entre"><h3>${esc(r.nombre)}</h3>${etqEjemplo(r)}</div>
+        ${r.descripcion ? `<p class="suave">${esc(r.descripcion)}</p>` : ''}
+        <div>${cats.map(c => `<span class="chip">${esc(c)}</span>`).join('')}</div>
+        <div class="fila" style="margin-top:6px"><span class="hc">${Util.formatearNumero(an.hidratos.total)} g HC${an.hidratos.estado === 'completo' ? '' : ' (parcial)'}</span>${etqHc(an.hidratos.estado)}${etqAlergia(an.alergenos.estado)}</div>
+        <div class="acciones"><button class="pequeno" data-accion="receta-editar" data-id="${r.id}">Ver / editar</button>
+          <button class="pequeno" data-accion="receta-duplicar" data-id="${r.id}">Duplicar</button>
+          <button class="pequeno peligro" data-accion="receta-borrar" data-id="${r.id}">Eliminar</button></div>
+      </article>`;
+    }).join('');
+    return `<div class="fila entre"><h2>Recetario</h2><button class="primario" data-accion="receta-nueva">+ Nueva receta</button></div>
+      <input class="buscador" type="search" placeholder="Buscar receta" data-accion="filtro-recetas" value="${esc(filtroRecetas)}">
+      ${tarjetas || '<div class="vacio">No hay recetas. Crea primero los ingredientes y luego la receta.</div>'}`;
+  }
+
+  /* =======================================================
+     PANTALLA: INGREDIENTES
+     ======================================================= */
+  function vistaIngredientes() {
+    const terminos = Alergenos.terminosActivos(datos);
+    const f = Util.normalizarTexto(filtroIngredientes);
+    const lista = datos.ingredientes.filter(i => !f || Util.normalizarTexto(i.nombre).includes(f))
+      .sort((a, b) => Util.compararTexto(a.nombre, b.nombre));
+    const tarjetas = lista.map(i => {
+      const dato = Hidratos.estadoDatoIngrediente(i);
+      const al = Alergenos.comprobarIngrediente(i, terminos);
+      const usos = Ingredientes.recetasQueLoUsan(datos, i.id).length;
+      const hc = Util.esNumero(i.hc.gramos) ? `${Util.formatearNumero(i.hc.gramos)} g HC / ${Util.formatearNumero(i.hc.base)} g (${C.ESTADOS_PESO[i.hc.estadoPeso]})` : 'Sin dato de HC';
+      return `<article class="tarjeta compacta">
+        <div class="fila entre"><b>${esc(i.nombre)}</b>${etqEjemplo(i)}</div>
+        <div class="suave" style="font-size:.88rem">${esc(Datos.nombreCategoria(datos, i.categoriaId))}${i.tipo ? ' · ' + esc(i.tipo) : ''} · ${hc} · en ${usos} receta(s)</div>
+        <div class="fila" style="margin-top:4px">${etq(dato.estado === 'completo' ? 'Dato completo' : dato.estado === 'pendiente' ? 'Dato por confirmar' : 'Dato incompleto', C.ESTADOS_HC[dato.estado].clase)}
+          ${etqAlergia(al.estado)}</div>
+        <div class="acciones"><button class="pequeno" data-accion="ing-editar" data-id="${i.id}">Ver / editar</button>
+          <button class="pequeno peligro" data-accion="ing-borrar" data-id="${i.id}">Eliminar</button></div>
+      </article>`;
+    }).join('');
+    return `<div class="fila entre"><h2>Ingredientes</h2><button class="primario" data-accion="ing-nuevo">+ Nuevo</button></div>
+      <input class="buscador" type="search" placeholder="Buscar ingrediente" data-accion="filtro-ingredientes" value="${esc(filtroIngredientes)}">
+      ${tarjetas || '<div class="vacio">No hay ingredientes todavía.</div>'}`;
+  }
+
+  /* =======================================================
+     PANTALLA: REGLAS DE COMPLEMENTARIEDAD
+     ======================================================= */
+  function vistaReglas() {
+    const lista = datos.reglas.slice().sort((a, b) => a.prioridad - b.prioridad || Util.compararTexto(a.nombre, b.nombre));
+    const tarjetas = lista.map(r => `<article class="tarjeta compacta">
+        <div class="fila entre"><b>${esc(r.nombre)}</b><span>${etqEjemplo(r)} ${etq('Prioridad ' + r.prioridad, 'info')}</span></div>
+        <p>${esc(Reglas.describir(r, datos))}</p>
+        ${r.descripcion ? `<p class="suave">${esc(r.descripcion)}</p>` : ''}
+        <label class="check"><input type="checkbox" data-accion="regla-activa" data-id="${r.id}" ${r.activa ? 'checked' : ''}> Activa</label>
+        <div class="acciones"><button class="pequeno" data-accion="regla-editar" data-id="${r.id}">Editar</button>
+          <button class="pequeno peligro" data-accion="regla-borrar" data-id="${r.id}">Eliminar</button></div>
+      </article>`).join('');
+    return `<div class="fila entre"><h2>Reglas</h2><button class="primario" data-accion="regla-nueva">+ Nueva regla</button></div>
+      <div class="aviso info">Prioridad 1 = la más importante. Las exclusiones de alérgenos se aplican siempre antes y por encima de cualquier regla.
+        Si dos reglas se contradicen con la misma prioridad, el día queda pendiente de revisar.</div>
+      ${tarjetas || '<div class="vacio">No hay reglas. Sin reglas, todas las propuestas quedarán pendientes de revisar.</div>'}`;
+  }
+
+  /* =======================================================
+     PANTALLA: REVISIÓN DE ALÉRGENOS
+     ======================================================= */
+  function vistaAlergenos() {
+    const plan = Planificador.planificarSemana(datos);
+    const rev = Revision.estado(datos, plan.huella, plan.dias);
+    const terminos = Alergenos.terminosActivos(datos);
+
+    const resumenDias = plan.dias.map(d => {
+      const nombreDia = C.DIAS.find(x => x.id === d.diaId).nombre;
+      if (!d.receta) return `<li><b>${nombreDia}:</b> <span class="suave">sin cena</span></li>`;
+      const ings = d.receta.lineas.map(l => Ingredientes.buscar(datos, l.ingredienteId)).filter(Boolean);
+      return `<li><b>${nombreDia}:</b> ${esc(d.receta.nombre)} ${etqAlergia(d.alergenos.estado)}
+        <ul class="motivos">${ings.map(i => `<li><b>${esc(i.nombre)}</b>${i.procesado ? ' (procesado)' : ''}: ${i.composicion ? esc(i.composicion) : '<span class="suave">sin composición indicada</span>'}${i.trazas ? ' · Trazas: ' + esc(i.trazas) : ''}</li>`).join('')}</ul>
+        ${listaMotivos(d.alergenos.motivos)}</li>`;
+    }).join('');
+
+    function bloqueFase(fase) {
+      const def = Revision.FASES[fase];
+      const est = rev[fase];
+      const habilitada = fase === 'fase1' || rev.fase1 === 'confirmada';
+      const fecha = datos.revisionAlergenos[fase] ? new Date(datos.revisionAlergenos[fase].fecha).toLocaleString('es-ES') : '';
+      const etiquetaEstado = est === 'confirmada' ? etq('Confirmada ' + fecha, 'ok') : est === 'caducada' ? etq('Caducada: los datos cambiaron', 'pend') : etq('Pendiente', 'sin');
+      const todas = def.puntos.every((_, i) => marcasRevision[fase].has(i));
+      return `<section class="tarjeta"><div class="fila entre"><h3>${def.titulo}</h3>${etiquetaEstado}</div>
+        ${def.puntos.map((p, i) => `<label class="check"><input type="checkbox" data-accion="rev-marca" data-fase="${fase}" data-i="${i}" ${marcasRevision[fase].has(i) ? 'checked' : ''} ${habilitada ? '' : 'disabled'}> ${esc(p)}</label>`).join('')}
+        <button class="primario" data-accion="rev-confirmar" data-fase="${fase}" ${habilitada && todas ? '' : 'disabled'}>Confirmar ${def.titulo.toLowerCase()}</button>
+        ${habilitada ? '' : '<p class="suave">Disponible tras confirmar la primera revisión.</p>'}
+      </section>`;
+    }
+
+    const grupos = C.EXCLUSIONES.map(e => e.id).concat([C.ID_GENERAL]).map(ex => {
+      const ts = terminos.filter(t => t.exclusion === ex);
+      return `<details><summary>${esc(Alergenos.nombreExclusion(ex))} (${ts.length})</summary><ul class="lista">
+        ${ts.map(t => `<li class="fila entre"><span>${t.origen === 'base' ? '🔒 ' : ''}${esc(t.termino)} ${etq(t.accion === 'bloquear' ? 'bloquea' : 'revisar', t.accion === 'bloquear' ? 'bloq' : 'pend')}</span>
+          ${t.origen === 'usuario' ? `<button class="pequeno peligro" data-accion="ter-borrar" data-id="${t.id}">Quitar</button>` : ''}</li>`).join('')}</ul></details>`;
+    }).join('');
+
+    return `<h2>Revisión de alérgenos</h2>
+      <div class="aviso bloq"><b>Exclusiones absolutas</b> (no se pueden desactivar): ${C.EXCLUSIONES.map(e => esc(e.nombre)).join(' · ')}.</div>
+      <div class="aviso info">La app nunca afirma que un plato sea seguro. Solo indica si ha detectado o no coincidencias en los datos introducidos. La revisión final es tuya.</div>
+      ${rev.completada ? '<div class="aviso ok">✓ Revisión de la semana confirmada en sus dos fases.</div>' : ''}
+      ${rev.hayBloqueadas ? '<div class="aviso bloq">Hay cenas bloqueadas en la semana. Cámbialas en el resumen semanal.</div>' : ''}
+      <section class="tarjeta"><h3>Cenas de la semana</h3><ul class="lista">${resumenDias}</ul></section>
+      ${bloqueFase('fase1')}${bloqueFase('fase2')}
+      <section class="tarjeta"><h3>Términos y derivados que se buscan</h3>
+        <p class="suave">Se buscan sin tildes ni mayúsculas y admitiendo plurales, en nombre, composición, trazas y notas de cada ingrediente. 🔒 = término de serie (no se puede quitar).</p>
+        ${grupos}
+        <hr class="separador">
+        <div class="rejilla3"><label>Nuevo término<input id="ter-termino" placeholder="Ej.: caseinato"></label>
+          <label>Exclusión<select id="ter-exclusion">${opciones(C.EXCLUSIONES.map(e => [e.id, e.nombre]).concat([[C.ID_GENERAL, 'Revisión general']]), 'huevo')}</select></label>
+          <label>Si aparece<select id="ter-accion">${opciones({ bloquear: 'Bloquear receta', revisar: 'Pedir revisión' }, 'bloquear')}</select></label></div>
+        <button class="primario pequeno" data-accion="ter-nuevo">Añadir término</button>
+      </section>`;
+  }
+
+  /* =======================================================
+     PANTALLA: CONFIGURACIÓN Y COPIAS DE SEGURIDAD
+     ======================================================= */
+  function vistaAjustes() {
+    const numEjemplos = datos.ingredientes.filter(i => i.ejemplo).length + datos.recetas.filter(r => r.ejemplo).length + datos.reglas.filter(r => r.ejemplo).length;
+    const cats = datos.categorias.map(c => `<li class="fila entre"><input data-accion="cat-nombre" data-id="${c.id}" value="${esc(c.nombre)}" style="flex:1;margin:0">
+      <button class="pequeno peligro" data-accion="cat-borrar" data-id="${c.id}">Quitar</button></li>`).join('');
+    return `<h2>Ajustes y copias de seguridad</h2>
+      <div class="aviso pend"><b>Importante:</b> los datos se guardan solo en este navegador y en este dispositivo. <b>No se sincronizan</b> entre dispositivos.
+        Si borras los datos del navegador, lo reinstalas o cambias de móvil, los perderás salvo que tengas una copia de seguridad.</div>
+      <section class="tarjeta"><h3>Copia de seguridad</h3>
+        <p class="suave">Contiene: ${esc(CopiaSeguridad.resumen(datos))}, menús, palabras clave, términos y categorías.</p>
+        <div class="acciones"><button class="primario" data-accion="exportar">Exportar copia (JSON)</button>
+          <label class="boton" style="margin:0;color:var(--texto);display:inline-flex;align-items:center">Importar copia<input type="file" accept=".json,application/json" data-accion="importar" style="display:none"></label></div>
+      </section>
+      <section class="tarjeta"><h3>Categorías de componentes</h3>
+        <ul class="lista">${cats}</ul>
+        <div class="fila" style="margin-top:8px"><input id="cat-nueva" placeholder="Nueva categoría" style="flex:1;margin:0"><button class="pequeno primario" data-accion="cat-nueva">Añadir</button></div>
+      </section>
+      <section class="tarjeta"><h3>Datos de ejemplo</h3>
+        <p class="suave">Hay ${numEjemplos} elemento(s) de ejemplo con datos ficticios.</p>
+        <button class="peligro" data-accion="borrar-ejemplos" ${numEjemplos ? '' : 'disabled'}>Eliminar datos de ejemplo</button>
+      </section>
+      <p class="suave">Versión de datos: ${C.VERSION_DATOS}. Almacenamiento: ${almacenOk ? 'localStorage disponible' : 'NO disponible'}.</p>`;
+  }
+
+  /* =======================================================
+     FORMULARIOS (diálogo)
+     ======================================================= */
+  const dialogo = $('#dialogo');
+  let borrador = null; // objeto que se está editando
+  let tipoBorrador = null;
+
+  function abrirDialogo(titulo, cuerpo, tipo, objeto) {
+    borrador = objeto; tipoBorrador = tipo;
+    dialogo.innerHTML = `<div class="dialogo-cab"><h3 style="margin:0">${esc(titulo)}</h3><button class="pequeno" data-accion="dlg-cerrar">Cerrar</button></div>
+      <div class="dialogo-cuerpo">${cuerpo}</div>
+      <div class="dialogo-pie"><button data-accion="dlg-cerrar">Cancelar</button><button class="primario" data-accion="dlg-guardar">Guardar</button></div>`;
+    if (dialogo.showModal) dialogo.showModal(); else dialogo.setAttribute('open', '');
+  }
+  function cerrarDialogo() { if (dialogo.close) dialogo.close(); else dialogo.removeAttribute('open'); borrador = null; tipoBorrador = null; }
+
+  /* ---- Ingrediente ---- */
+  function formularioIngrediente(ing) {
+    const tipos = [...new Set(datos.ingredientes.map(i => i.tipo).filter(Boolean))];
+    return `<datalist id="lista-tipos">${tipos.map(t => `<option value="${esc(t)}">`).join('')}</datalist>
+      ${ing.ejemplo ? '<div class="aviso pend">Ingrediente de EJEMPLO con datos ficticios.</div>' : ''}
+      <label>Nombre *<input name="nombre" value="${esc(ing.nombre)}"></label>
+      <div class="rejilla2"><label>Categoría<select name="categoriaId">${opcionesCategorias(ing.categoriaId)}</select></label>
+        <label>Tipo (opcional)<input name="tipo" list="lista-tipos" value="${esc(ing.tipo)}" placeholder="arroz, pasta, pollo..."></label></div>
+      <fieldset><legend>Hidratos de carbono</legend>
+        <div class="rejilla3"><label>Gramos de HC<input name="hcGramos" inputmode="decimal" value="${ing.hc.gramos == null ? '' : esc(ing.hc.gramos)}"></label>
+          <label>Por cada (g)<input name="hcBase" inputmode="decimal" value="${esc(ing.hc.base)}"></label>
+          <label>Peso del dato<select name="hcEstadoPeso">${opciones(C.ESTADOS_PESO, ing.hc.estadoPeso)}</select></label></div>
+        <div class="rejilla2"><label>Fuente del dato<select name="fuenteClase"><option value="">— Sin indicar —</option>${opciones(C.FUENTES, ing.fuente.clase)}</select></label>
+          <label>Detalle de la fuente<input name="fuenteDetalle" value="${esc(ing.fuente.detalle)}" placeholder="Qué tabla, qué marca..."></label></div>
+        <label class="check"><input type="checkbox" name="verificado" ${ing.verificado ? 'checked' : ''}> He comprobado este dato</label>
+      </fieldset>
+      <fieldset><legend>Composición y alérgenos</legend>
+        <label class="check"><input type="checkbox" name="procesado" ${ing.procesado ? 'checked' : ''}> Es un producto procesado (envasado, salsa, embutido, pan...)</label>
+        <label>Composición / lista de ingredientes<textarea name="composicion" placeholder="Copia la lista de ingredientes de la etiqueta">${esc(ing.composicion)}</textarea></label>
+        <label class="check"><input type="checkbox" name="composicionCompleta" ${ing.composicionCompleta ? 'checked' : ''}> La composición está completa</label>
+        <div class="rejilla2">${C.EXCLUSIONES.map(e => `<label>${esc(e.nombre)}<select name="al_${e.id}">${opciones(C.ESTADOS_ALERGENO, ing.alergenos[e.id])}</select></label>`).join('')}</div>
+        <label>Trazas (texto de la etiqueta)<input name="trazas" value="${esc(ing.trazas)}" placeholder="Ej.: Puede contener trazas de..."></label>
+        <label>Notas de alérgenos<input name="alergenosNotas" value="${esc(ing.alergenosNotas)}"></label>
+        <label class="check"><input type="checkbox" name="revisionTerminosConfirmada" ${ing.revisionTerminosConfirmada ? 'checked' : ''}>
+          He revisado las coincidencias marcadas «a revisar» (no anula bloqueos ni datos sin indicar)</label>
+        <div id="analisis-ing"></div>
+      </fieldset>
+      <label>Observaciones<textarea name="observaciones">${esc(ing.observaciones)}</textarea></label>`;
+  }
+  function leerIngrediente() {
+    const f = n => dialogo.querySelector(`[name="${n}"]`);
+    const ing = Util.clonar(borrador);
+    ing.nombre = f('nombre').value; ing.categoriaId = f('categoriaId').value; ing.tipo = f('tipo').value.trim();
+    ing.hc = { gramos: Util.aNumero(f('hcGramos').value), base: Util.aNumero(f('hcBase').value), estadoPeso: f('hcEstadoPeso').value };
+    ing.fuente = { clase: f('fuenteClase').value, detalle: f('fuenteDetalle').value.trim() };
+    ing.verificado = f('verificado').checked; ing.procesado = f('procesado').checked;
+    ing.composicion = f('composicion').value; ing.composicionCompleta = f('composicionCompleta').checked;
+    C.EXCLUSIONES.forEach(e => { ing.alergenos[e.id] = f('al_' + e.id).value; });
+    ing.trazas = f('trazas').value; ing.alergenosNotas = f('alergenosNotas').value;
+    ing.revisionTerminosConfirmada = f('revisionTerminosConfirmada').checked; ing.observaciones = f('observaciones').value;
+    if (f('hcGramos').value.trim() && ing.hc.gramos == null) ing.hc.gramos = NaN; // texto no numérico → error al guardar
+    if (ing.hc.base == null) ing.hc.base = NaN;
+    return ing;
+  }
+  function pintarAnalisisIngrediente() {
+    const caja = dialogo.querySelector('#analisis-ing');
+    if (!caja) return;
+    const ing = leerIngrediente();
+    const al = Alergenos.comprobarIngrediente(ing, Alergenos.terminosActivos(datos));
+    caja.innerHTML = `<div class="rotulo" style="margin-top:8px">Comprobación automática</div>${etqAlergia(al.estado)}${listaMotivos(al.motivos)}`;
+  }
+
+  /* ---- Receta ---- */
+  function formularioReceta(rec) {
+    return `${rec.ejemplo ? '<div class="aviso pend">Receta de EJEMPLO con datos ficticios.</div>' : ''}
+      <label>Nombre del plato *<input name="nombre" data-rec="nombre" value="${esc(rec.nombre)}"></label>
+      <label>Descripción (opcional)<textarea name="descripcion" data-rec="descripcion">${esc(rec.descripcion)}</textarea></label>
+      <fieldset><legend>Ingredientes</legend><div id="lineas-receta"></div>
+        <button class="pequeno" data-accion="linea-nueva">+ Añadir ingrediente</button>
+        ${datos.ingredientes.length ? '' : '<p class="suave">Primero crea ingredientes en la sección Ingredientes.</p>'}
+      </fieldset>
+      <fieldset><legend>Cálculo y comprobaciones</legend><div id="resumen-receta"></div></fieldset>
+      <label>Observaciones<textarea name="observaciones" data-rec="observaciones">${esc(rec.observaciones)}</textarea></label>`;
+  }
+  function pintarLineasReceta() {
+    const caja = dialogo.querySelector('#lineas-receta');
+    const ings = datos.ingredientes.slice().sort((a, b) => Util.compararTexto(a.nombre, b.nombre));
+    const terminos = Alergenos.terminosActivos(datos);
+    caja.innerHTML = borrador.lineas.map((l, idx) => `<div class="linea-receta">
+        <label>Ingrediente<select data-linea="${idx}" data-campo="ingredienteId"><option value="">— Elige —</option>
+          ${ings.map(i => { const b = Alergenos.comprobarIngrediente(i, terminos).estado === 'bloqueada';
+            return `<option value="${esc(i.id)}"${i.id === l.ingredienteId ? ' selected' : ''}>${esc(nombreConEjemplo(i))} · ${esc(Datos.nombreCategoria(datos, i.categoriaId))}${b ? ' ✕ BLOQUEADO' : ''}</option>`; }).join('')}
+        </select></label>
+        <div class="rejilla3"><label>Gramos<input inputmode="decimal" data-linea="${idx}" data-campo="gramos" value="${l.gramos == null ? '' : esc(l.gramos)}"></label>
+          <label>Peso<select data-linea="${idx}" data-campo="estadoPeso">${opciones(C.ESTADOS_PESO, l.estadoPeso)}</select></label>
+          <button class="pequeno peligro" data-accion="linea-borrar" data-linea="${idx}">Quitar</button></div>
+      </div>`).join('') || '<p class="suave">Sin ingredientes.</p>';
+  }
+  function pintarResumenReceta() {
+    const caja = dialogo.querySelector('#resumen-receta');
+    const lineasValidas = Object.assign({}, borrador, { lineas: borrador.lineas.filter(l => l.ingredienteId) });
+    const calc = Hidratos.calcularReceta(lineasValidas, datos);
+    const al = Alergenos.comprobarReceta(lineasValidas, datos);
+    caja.innerHTML = `<div class="fila">${etqHc(calc.estado)} ${etqAlergia(al.estado)}</div>${tablaHidratos(calc)}
+      <small class="suave">${textoReferenciaHc()}</small>${listaMotivos(al.motivos)}`;
+  }
+
+  /* ---- Regla ---- */
+  function formularioRegla(r) {
+    return `${r.ejemplo ? '<div class="aviso pend">Regla de EJEMPLO. Revísala antes de activarla.</div>' : ''}
+      <label>Nombre *<input name="nombre" value="${esc(r.nombre)}"></label>
+      <label>Descripción<textarea name="descripcion">${esc(r.descripcion)}</textarea></label>
+      <fieldset><legend>Condición (comida del colegio)</legend>
+        <div class="rejilla3"><label>Si la comida<select name="condComida">${opciones({ incluye: 'incluye', no_incluye: 'NO incluye' }, r.condicion.comida)}</select></label>
+          <label>Categoría<select name="condCategoria">${opcionesCategorias(r.condicion.categoriaId)}</select></label>
+          <label>Tipo (opcional)<input name="condTipo" value="${esc(r.condicion.tipo)}"></label></div>
+      </fieldset>
+      <fieldset><legend>Acción (cena)</legend>
+        <div class="rejilla3"><label>La cena debe<select name="accCena">${opciones({ incluir: 'incluir', evitar: 'evitar', evitar_mismo_tipo: 'no repetir el tipo' }, r.accion.cena)}</select></label>
+          <label>Categoría<select name="accCategoria">${opcionesCategorias(r.accion.categoriaId)}</select></label>
+          <label>Tipo (opcional)<input name="accTipo" value="${esc(r.accion.tipo)}"></label></div>
+        <small class="suave">«No repetir el tipo» compara el campo «tipo» de la comida y de los ingredientes (p. ej. arroz frente a pasta). El campo «tipo» de la acción no se usa en ese caso.</small>
+      </fieldset>
+      <div class="rejilla2"><label>Prioridad (1 = máxima)<input name="prioridad" inputmode="numeric" value="${esc(r.prioridad)}"></label>
+        <label class="check" style="margin-top:26px"><input type="checkbox" name="activa" ${r.activa ? 'checked' : ''}> Activa</label></div>
+      <div class="aviso info" id="frase-regla"></div>`;
+  }
+  function leerRegla() {
+    const f = n => dialogo.querySelector(`[name="${n}"]`);
+    const r = Util.clonar(borrador);
+    r.nombre = f('nombre').value; r.descripcion = f('descripcion').value;
+    r.condicion = { comida: f('condComida').value, categoriaId: f('condCategoria').value, tipo: f('condTipo').value.trim() };
+    r.accion = { cena: f('accCena').value, categoriaId: f('accCategoria').value, tipo: f('accCena').value === 'evitar_mismo_tipo' ? '' : f('accTipo').value.trim() };
+    const p = Util.aNumero(f('prioridad').value); r.prioridad = p == null ? NaN : p;
+    r.activa = f('activa').checked;
+    return r;
+  }
+  function pintarFraseRegla() { const c = dialogo.querySelector('#frase-regla'); if (c) c.textContent = Reglas.describir(leerRegla(), datos); }
+
+  function guardarDialogo() {
+    let r;
+    if (tipoBorrador === 'ingrediente') r = Ingredientes.guardar(datos, leerIngrediente());
+    else if (tipoBorrador === 'receta') r = Recetas.guardar(datos, borrador);
+    else if (tipoBorrador === 'regla') r = Reglas.guardar(datos, leerRegla());
+    if (!r.ok) { mensaje(r.error, 4500); return; }
+    cerrarDialogo(); persistir(); mensaje('Guardado');
+  }
+
+  /* =======================================================
+     PINTADO Y NAVEGACIÓN
+     ======================================================= */
+  const PINTORES = { semana: vistaSemana, menu: vistaMenu, recetas: vistaRecetas, ingredientes: vistaIngredientes,
+                     reglas: vistaReglas, alergenos: vistaAlergenos, ajustes: vistaAjustes };
+  function pintar() {
+    const v = vistaActual();
+    $('#pestanas').innerHTML = VISTAS.map(([id, t]) => `<a href="#${id}" class="${id === v ? 'activa' : ''}">${t}</a>`).join('');
+    const scroll = window.scrollY;
+    $('#vista').innerHTML = (avisoInicial ? `<div class="aviso bloq">${esc(avisoInicial)}</div>` : '') + PINTORES[v]();
+    window.scrollTo(0, scroll);
+  }
+  let avisoInicial = carga.aviso || null;
+  window.addEventListener('hashchange', () => { window.scrollTo(0, 0); pintar(); });
+
+  /* =======================================================
+     EVENTOS (delegados)
+     ======================================================= */
+  const temporizadores = {};
+  function guardarDiferido(clave) { clearTimeout(temporizadores[clave]); temporizadores[clave] = setTimeout(() => persistir(true), 400); }
+
+  document.addEventListener('click', ev => {
+    const el = ev.target.closest('[data-accion]');
+    if (!el || el.tagName === 'SELECT' || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') return;
+    const a = el.dataset.accion, id = el.dataset.id, dia = el.dataset.dia;
+    switch (a) {
+      /* Diálogo */
+      case 'dlg-cerrar': cerrarDialogo(); break;
+      case 'dlg-guardar': guardarDialogo(); break;
+      /* Menú */
+      case 'sugerir': { const n = MenuEscolar.sugerirComponentes(datos, dia); persistir(); mensaje(n ? `${n} sugerencia(s) añadida(s). Revísalas y confírmalas.` : 'No hay sugerencias nuevas.'); break; }
+      case 'comp-nuevo': datos.menuColegio[dia].componentes.push(Datos.nuevoComponente('', 'otra', '', 'manual')); persistir(); break;
+      case 'comp-borrar': datos.menuColegio[dia].componentes = datos.menuColegio[dia].componentes.filter(c => c.id !== el.dataset.comp); persistir(); break;
+      case 'vaciar-semana': if (confirm('¿Vaciar el menú de los cinco días, las cenas elegidas a mano y la revisión de alérgenos?')) { MenuEscolar.vaciarSemana(datos); persistir(); } break;
+      case 'pc-nueva': {
+        const termino = $('#pc-termino').value.trim();
+        if (!termino) { mensaje('Escribe una palabra.'); break; }
+        datos.palabrasClave.push({ id: Util.generarId('pc'), termino, categoriaId: $('#pc-categoria').value, tipo: $('#pc-tipo').value.trim() });
+        persistir(); break;
+      }
+      case 'pc-borrar': datos.palabrasClave = datos.palabrasClave.filter(p => p.id !== id); persistir(); break;
+      /* Ingredientes */
+      case 'ing-nuevo': { const ing = Datos.nuevoIngrediente(); abrirDialogo('Nuevo ingrediente', formularioIngrediente(ing), 'ingrediente', ing); pintarAnalisisIngrediente(); break; }
+      case 'ing-editar': { const ing = Ingredientes.buscar(datos, id); abrirDialogo('Ingrediente', formularioIngrediente(ing), 'ingrediente', Util.clonar(ing)); pintarAnalisisIngrediente(); break; }
+      case 'ing-borrar': {
+        const ing = Ingredientes.buscar(datos, id);
+        if (!confirm(`¿Eliminar el ingrediente «${ing.nombre}»?`)) break;
+        const r = Ingredientes.eliminar(datos, id); if (!r.ok) mensaje(r.error, 5000); else persistir(); break;
+      }
+      /* Recetas */
+      case 'receta-nueva': { const r = Datos.nuevaReceta(); abrirDialogo('Nueva receta', formularioReceta(r), 'receta', r); pintarLineasReceta(); pintarResumenReceta(); break; }
+      case 'receta-editar': { const r = Util.clonar(Recetas.buscar(datos, id)); abrirDialogo('Receta', formularioReceta(r), 'receta', r); pintarLineasReceta(); pintarResumenReceta(); break; }
+      case 'receta-duplicar': { Recetas.duplicar(datos, id); persistir(); mensaje('Receta duplicada'); break; }
+      case 'receta-borrar': {
+        const r = Recetas.buscar(datos, id); const dias = Recetas.diasConEleccion(datos, id);
+        if (confirm(`¿Eliminar la receta «${r.nombre}»?${dias.length ? ' Está elegida para: ' + dias.join(', ') + '.' : ''}`)) { Recetas.eliminar(datos, id); persistir(); }
+        break;
+      }
+      case 'linea-nueva': borrador.lineas.push(Datos.nuevaLinea()); pintarLineasReceta(); pintarResumenReceta(); break;
+      case 'linea-borrar': borrador.lineas.splice(Number(el.dataset.linea), 1); pintarLineasReceta(); pintarResumenReceta(); break;
+      /* Reglas */
+      case 'regla-nueva': { const r = Datos.nuevaRegla(); abrirDialogo('Nueva regla', formularioRegla(r), 'regla', r); pintarFraseRegla(); break; }
+      case 'regla-editar': { const r = Util.clonar(datos.reglas.find(x => x.id === id)); abrirDialogo('Regla', formularioRegla(r), 'regla', r); pintarFraseRegla(); break; }
+      case 'regla-borrar': { const r = datos.reglas.find(x => x.id === id); if (confirm(`¿Eliminar la regla «${r.nombre}»?`)) { Reglas.eliminar(datos, id); persistir(); } break; }
+      /* Alérgenos */
+      case 'rev-confirmar': {
+        const fase = el.dataset.fase; const plan = Planificador.planificarSemana(datos);
+        const r = Revision.confirmar(datos, fase, plan.huella);
+        if (!r.ok) { mensaje(r.error); break; }
+        marcasRevision[fase].clear(); if (fase === 'fase1') marcasRevision.fase2.clear();
+        persistir(); mensaje('Revisión confirmada'); break;
+      }
+      case 'ter-nuevo': {
+        const r = Alergenos.agregarTermino(datos, $('#ter-termino').value, $('#ter-exclusion').value, $('#ter-accion').value);
+        if (!r.ok) mensaje(r.error); else { persistir(); mensaje('Término añadido'); }
+        break;
+      }
+      case 'ter-borrar': if (confirm('¿Quitar este término de la lista?')) { Alergenos.eliminarTermino(datos, id); persistir(); } break;
+      /* Ajustes */
+      case 'exportar': exportar(); break;
+      case 'cat-nueva': {
+        const nombre = $('#cat-nueva').value.trim(); if (!nombre) break;
+        datos.categorias.push({ id: Util.generarId('cat'), nombre }); persistir(); break;
+      }
+      case 'cat-borrar': {
+        const usada = datos.ingredientes.some(i => i.categoriaId === id) || datos.palabrasClave.some(p => p.categoriaId === id) ||
+          datos.reglas.some(r => r.condicion.categoriaId === id || r.accion.categoriaId === id) ||
+          Object.values(datos.menuColegio).some(m => m.componentes.some(c => c.categoriaId === id));
+        if (usada) { mensaje('No se puede quitar: la usan ingredientes, reglas, palabras clave o el menú.', 4500); break; }
+        if (datos.categorias.length <= 1) { mensaje('Debe quedar al menos una categoría.'); break; }
+        datos.categorias = datos.categorias.filter(c => c.id !== id); persistir(); break;
+      }
+      case 'borrar-ejemplos': borrarEjemplos(); break;
+    }
+  });
+
+  document.addEventListener('input', ev => {
+    const el = ev.target;
+    // Dentro del diálogo
+    if (dialogo.contains(el)) {
+      if (tipoBorrador === 'ingrediente') pintarAnalisisIngrediente();
+      if (tipoBorrador === 'regla') pintarFraseRegla();
+      if (tipoBorrador === 'receta') {
+        if (el.dataset.rec) borrador[el.dataset.rec] = el.value;
+        if (el.dataset.linea != null && el.dataset.campo === 'gramos') { borrador.lineas[Number(el.dataset.linea)].gramos = Util.aNumero(el.value); pintarResumenReceta(); }
+      }
+      return;
+    }
+    const a = el.dataset.accion;
+    if (a === 'menu-texto') { datos.menuColegio[el.dataset.dia].texto = el.value; guardarDiferido('menu-' + el.dataset.dia); }
+    if (a === 'filtro-ingredientes' || a === 'filtro-recetas') {
+      if (a === 'filtro-ingredientes') filtroIngredientes = el.value; else filtroRecetas = el.value;
+      const pos = el.selectionStart; pintar();
+      const nuevo = document.querySelector(`[data-accion="${a}"]`); nuevo.focus(); nuevo.setSelectionRange(pos, pos);
+    }
+  });
+
+  document.addEventListener('change', ev => {
+    const el = ev.target;
+    if (dialogo.contains(el)) {
+      if (tipoBorrador === 'receta' && el.dataset.linea != null) {
+        const linea = borrador.lineas[Number(el.dataset.linea)];
+        if (el.dataset.campo === 'ingredienteId') {
+          linea.ingredienteId = el.value;
+          const ing = Ingredientes.buscar(datos, el.value);
+          if (ing) linea.estadoPeso = ing.hc.estadoPeso; // por defecto, el mismo estado que el dato de la ficha
+          pintarLineasReceta();
+        }
+        if (el.dataset.campo === 'estadoPeso') linea.estadoPeso = el.value;
+        if (el.dataset.campo === 'gramos') linea.gramos = Util.aNumero(el.value);
+        pintarResumenReceta();
+      }
+      if (tipoBorrador === 'ingrediente') pintarAnalisisIngrediente();
+      if (tipoBorrador === 'regla') pintarFraseRegla();
+      return;
+    }
+    const a = el.dataset.accion;
+    if (a === 'menu-texto') { datos.menuColegio[el.dataset.dia].texto = el.value; persistir(true); }
+    if (a === 'comp-campo') {
+      const comp = datos.menuColegio[el.dataset.dia].componentes.find(c => c.id === el.dataset.comp);
+      comp[el.dataset.campo] = el.type === 'checkbox' ? el.checked : el.value;
+      // Los cuadros de texto no se repintan (para no perder el foco); casillas y desplegables sí.
+      persistir(el.type !== 'checkbox' && el.tagName !== 'SELECT');
+    }
+    if (a === 'elegir-cena') { datos.eleccionManual[el.dataset.dia] = el.value || null; persistir(); }
+    if (a === 'regla-activa') { datos.reglas.find(r => r.id === el.dataset.id).activa = el.checked; persistir(); }
+    if (a === 'rev-marca') {
+      const set = marcasRevision[el.dataset.fase]; const i = Number(el.dataset.i);
+      if (el.checked) set.add(i); else set.delete(i); pintar();
+    }
+    if (a === 'cat-nombre') {
+      const nombre = el.value.trim(); if (!nombre) { mensaje('El nombre no puede estar vacío.'); pintar(); return; }
+      datos.categorias.find(c => c.id === el.dataset.id).nombre = nombre; persistir();
+    }
+    if (a === 'importar' && el.files && el.files[0]) importar(el.files[0]);
+  });
+
+  /* =======================================================
+     IMPORTAR / EXPORTAR (parte de interfaz)
+     ======================================================= */
+  function exportar() {
+    const copia = CopiaSeguridad.crearCopia(datos);
+    const blob = new Blob([JSON.stringify(copia, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const enlace = document.createElement('a');
+    enlace.href = url; enlace.download = CopiaSeguridad.nombreArchivo();
+    document.body.appendChild(enlace); enlace.click(); enlace.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    mensaje('Copia descargada. Guárdala en un lugar seguro (por ejemplo, tu nube o correo).', 4500);
+  }
+
+  function importar(archivo) {
+    const lector = new FileReader();
+    lector.onload = () => {
+      const r = CopiaSeguridad.leerCopia(String(lector.result));
+      if (!r.ok) { alert('No se ha podido importar la copia:\n\n• ' + r.errores.join('\n• ')); pintar(); return; }
+      const fecha = r.exportado ? new Date(r.exportado).toLocaleString('es-ES') : 'fecha desconocida';
+      const ok = confirm(`Se SUSTITUIRÁN todos los datos actuales (${CopiaSeguridad.resumen(datos)})\n` +
+        `por los de la copia del ${fecha} (${CopiaSeguridad.resumen(r.datos)}).\n\n¿Continuar?`);
+      if (!ok) { pintar(); return; }
+      datos = r.datos; avisoInicial = null; persistir(); mensaje('Copia importada correctamente');
+    };
+    lector.onerror = () => alert('No se ha podido leer el archivo.');
+    lector.readAsText(archivo);
+  }
+
+  function borrarEjemplos() {
+    if (!confirm('¿Eliminar los ingredientes, recetas y reglas de ejemplo?')) return;
+    const recetasEj = datos.recetas.filter(r => r.ejemplo).map(r => r.id);
+    recetasEj.forEach(id => Recetas.eliminar(datos, id));
+    datos.reglas = datos.reglas.filter(r => !r.ejemplo);
+    let conservados = 0;
+    datos.ingredientes.filter(i => i.ejemplo).forEach(i => { if (!Ingredientes.eliminar(datos, i.id).ok) conservados++; });
+    persistir();
+    mensaje(conservados ? `Hecho. ${conservados} ingrediente(s) de ejemplo se conservan porque los usan recetas tuyas.` : 'Datos de ejemplo eliminados.', 4500);
+  }
+
+  /* PWA: aquí se registraría el service worker en el futuro:
+     if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js'); */
+
+  pintar();
+})();
+</script>
+</body>
+</html>
