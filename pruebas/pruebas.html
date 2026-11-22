@@ -142,6 +142,15 @@ async function pruebasNucleo() {
     const base = M.Util.clonar(E.d.ingredientes[2]); base.hc = { gramos: 25, base: 50, estadoPeso: 'no_aplica' }; M.Ingredientes.guardar(E.d, base);
     const c2 = M.Hidratos.calcularReceta(E.rec('r2', 'R2', [['i3', 30, 'no_aplica']]), E.d);
     comprobar('Base de referencia distinta de 100 (25 g por 50 g; 30 g → 15 g)', c2.total === 15, 'total=' + c2.total);
+    // Dato tomado de la tabla de raciones: 1 ración (10 g HC) = 13 g de arroz crudo (cifra de ejemplo)
+    E.ing('rac', 'Arroz (tabla de raciones)', 'hidrato', 'arroz', 10, 'crudo', { fuente: { clase: 'tabla_raciones', detalle: '' } });
+    E.d.ingredientes.find(i => i.id === 'rac').hc.base = 13;
+    const cr = M.Hidratos.calcularReceta({ lineas: [{ ingredienteId: 'rac', gramos: 26, estadoPeso: 'crudo' }] }, E.d);
+    comprobar('Tabla de raciones: 10 g HC por 13 g → 26 g de alimento = 20 g HC', cr.total === 20, 'total=' + cr.total);
+    comprobar('Tabla de raciones cuenta como fuente identificada (cálculo completo si está verificado)', cr.estado === 'completo', cr.estado);
+    const noVerif = M.Util.clonar(E.d.ingredientes.find(i => i.id === 'rac')); noVerif.verificado = false; M.Ingredientes.guardar(E.d, noVerif);
+    comprobar('Tabla de raciones sin «He comprobado» → pendiente de confirmar',
+      M.Hidratos.calcularReceta({ lineas: [{ ingredienteId: 'rac', gramos: 26, estadoPeso: 'crudo' }] }, E.d).estado === 'pendiente');
     const c3 = M.Hidratos.calcularReceta({ lineas: [] }, E.d);
     comprobar('Receta vacía → incompleto', c3.estado === 'incompleto');
     comprobar('No modifica cantidades (la receta conserva sus gramos)', E.d.recetas[0].lineas[0].gramos === 35);
@@ -439,7 +448,9 @@ async function pruebasNucleo() {
   grupo('Exclusiones médicas y redacción');
   {
     comprobar('El código no contiene cálculos de insulina, dosis ni glucosa', !/insulin|dosis|glucosa|glucemia/i.test(html));
-    comprobar('No hay librerías ni URLs externas en la app', !/<script[^>]+src=|<link[^>]+href="http|fetch\(/i.test(html));
+    comprobar('No hay librerías externas ni la app descarga datos de internet', !/<script[^>]+src=|<link[^>]+href="http|fetch\(|XMLHttpRequest/i.test(html));
+    const urls = [...new Set(html.match(/https?:\/\/[^\s'"<>]+/g) || [])];
+    comprobar('La única dirección externa es el enlace a la tabla de raciones', urls.length === 1 && urls[0] === M.Constantes.TABLA_RACIONES.url, urls.join(' '));
   }
 }
 
@@ -464,6 +475,15 @@ async function pruebasInterfaz() {
   w.location.hash = 'ingredientes'; await esperar(80);
   comprobar('Abrir ficha de ingrediente', pulsar('[data-accion="ing-editar"]') && doc.getElementById('dialogo').open);
   comprobar('La ficha muestra la comprobación automática de alérgenos', doc.getElementById('analisis-ing').textContent.length > 10);
+  pulsar('[data-accion="dlg-cerrar"]');
+  pulsar('[data-accion="ing-nuevo"]');
+  const campo = n => doc.querySelector(`#dialogo [name="${n}"]`);
+  comprobar('La ficha enlaza la tabla de raciones', !!doc.querySelector('#dialogo a[href*="tabla_de_raciones"]'));
+  campo('racionGramos').value = '13';
+  pulsar('[data-accion="aplicar-racion"]');
+  comprobar('«Aplicar» ración: 10 g HC por 13 g y fuente = tabla de raciones',
+    campo('hcGramos').value === '10' && campo('hcBase').value === '13' && campo('fuenteClase').value === 'tabla_raciones');
+  comprobar('«Aplicar» NO marca el dato como comprobado', !campo('verificado').checked);
   pulsar('[data-accion="dlg-cerrar"]');
   w.location.hash = 'recetas'; await esperar(80);
   comprobar('Abrir receta y ver tabla de hidratos', pulsar('[data-accion="receta-editar"]') && !!doc.querySelector('#resumen-receta table'));

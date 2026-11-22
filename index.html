@@ -251,7 +251,14 @@ const Constantes = (() => {
     { id: 'jueves', nombre: 'Jueves' }, { id: 'viernes', nombre: 'Viernes' }
   ];
   const ESTADOS_PESO = { crudo: 'Crudo', cocido: 'Cocido', no_aplica: 'No aplica' };
-  const FUENTES = { tabla_personal: 'Tabla personal de referencia', etiqueta: 'Etiqueta del fabricante', otra: 'Otra fuente' };
+  const FUENTES = { tabla_personal: 'Tabla personal de referencia', etiqueta: 'Etiqueta del fabricante',
+                    tabla_raciones: 'Tabla de raciones de HC (Fundación para la Salud)', otra: 'Otra fuente' };
+  /**
+   * Tabla de raciones elegida por la persona usuaria como fuente cuando no hay dato en la etiqueta.
+   * Formato de la tabla: "1 ración de HC (10 g) son X g de alimento". La app NO lee esta web:
+   * solo muestra el enlace; la cifra la consulta y la escribe la persona.
+   */
+  const TABLA_RACIONES = { url: 'https://www.fundacionparalasalud.org/sabercomer/tabla_de_raciones_de_hidratos_de_carbono#filtro', gramosHcPorRacion: 10 };
   const ESTADOS_ALERGENO = { desconocido: 'Sin indicar', no_contiene: 'No contiene', contiene: 'Contiene', trazas: 'Puede contener trazas' };
 
   /** Exclusiones absolutas. No editables. */
@@ -336,7 +343,7 @@ const Constantes = (() => {
     bloqueada: { texto: 'Bloqueada por exclusión', clase: 'bloq' }
   };
 
-  return { VERSION_DATOS, CLAVE_ALMACEN, CLAVE_RESPALDO_DANADO, OBJETIVO_HC_ORIENTATIVO, DIAS, ESTADOS_PESO, FUENTES,
+  return { VERSION_DATOS, CLAVE_ALMACEN, CLAVE_RESPALDO_DANADO, OBJETIVO_HC_ORIENTATIVO, DIAS, ESTADOS_PESO, FUENTES, TABLA_RACIONES,
            ESTADOS_ALERGENO, EXCLUSIONES, ID_GENERAL, TERMINOS_BASE, CATEGORIAS_INICIALES, PALABRAS_CLAVE_INICIALES,
            ESTADOS_DIA, ESTADOS_HC, ESTADOS_ALERGIA_RECETA };
 })();
@@ -1626,6 +1633,13 @@ const CopiaSeguridad = (() => {
         <div class="rejilla3"><label>Gramos de HC<input name="hcGramos" inputmode="decimal" value="${ing.hc.gramos == null ? '' : esc(ing.hc.gramos)}"></label>
           <label>Por cada (g)<input name="hcBase" inputmode="decimal" value="${esc(ing.hc.base)}"></label>
           <label>Peso del dato<select name="hcEstadoPeso">${opciones(C.ESTADOS_PESO, ing.hc.estadoPeso)}</select></label></div>
+        <div class="aviso info" style="margin:4px 0 10px">¿Sin dato en la etiqueta? Consulta la
+          <a href="${esc(C.TABLA_RACIONES.url)}" target="_blank" rel="noopener noreferrer">tabla de raciones de HC</a> y escribe la cifra de la fila:
+          <div class="fila" style="margin-top:6px"><span>1 ración (${C.TABLA_RACIONES.gramosHcPorRacion} g HC) son</span>
+            <input name="racionGramos" inputmode="decimal" style="width:90px;margin:0"> <span>g</span>
+            <button class="pequeno" data-accion="aplicar-racion">Aplicar</button></div>
+          <small>Rellena «Gramos de HC», «Por cada» y la fuente. Elige tú «Crudo» o «Cocido» según la fila de la tabla («hervido» = cocido), anota la fila en «Detalle» y marca «He comprobado este dato».</small>
+        </div>
         <div class="rejilla2"><label>Fuente del dato<select name="fuenteClase"><option value="">— Sin indicar —</option>${opciones(C.FUENTES, ing.fuente.clase)}</select></label>
           <label>Detalle de la fuente<input name="fuenteDetalle" value="${esc(ing.fuente.detalle)}" placeholder="Qué tabla, qué marca..."></label></div>
         <label class="check"><input type="checkbox" name="verificado" ${ing.verificado ? 'checked' : ''}> He comprobado este dato</label>
@@ -1771,6 +1785,19 @@ const CopiaSeguridad = (() => {
       /* Diálogo */
       case 'dlg-cerrar': cerrarDialogo(); break;
       case 'dlg-guardar': guardarDialogo(); break;
+      case 'aplicar-racion': {
+        // Convierte "1 ración (10 g HC) = X g" en el formato de la ficha: 10 g de HC por cada X g.
+        const campo = n => dialogo.querySelector(`[name="${n}"]`);
+        const gramos = Util.aNumero(campo('racionGramos').value);
+        if (gramos == null || gramos <= 0) { mensaje('Escribe los gramos de alimento que indica la tabla (un número mayor que 0).'); break; }
+        campo('hcGramos').value = C.TABLA_RACIONES.gramosHcPorRacion;
+        campo('hcBase').value = String(gramos).replace('.', ',');
+        campo('fuenteClase').value = 'tabla_raciones';
+        if (!campo('fuenteDetalle').value.trim()) campo('fuenteDetalle').placeholder = 'Fila de la tabla, p. ej. «Arroz blanco, crudo»';
+        pintarAnalisisIngrediente();
+        mensaje('Dato aplicado. Revisa crudo/cocido y marca «He comprobado este dato».', 4000);
+        break;
+      }
       /* Menú */
       case 'sugerir': { const n = MenuEscolar.sugerirComponentes(datos, dia); persistir(); mensaje(n ? `${n} sugerencia(s) añadida(s). Revísalas y confírmalas.` : 'No hay sugerencias nuevas.'); break; }
       case 'comp-nuevo': datos.menuColegio[dia].componentes.push(Datos.nuevoComponente('', 'otra', '', 'manual')); persistir(); break;
